@@ -1,36 +1,21 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Hackathon
 
-## Getting Started
+Next.js 16, Supabase Auth, shadcn/ui, and the Notion `DESIGN.md` from [awesome-design-md](https://github.com/VoltAgent/awesome-design-md).
 
-First, run the development server:
+## Setup
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. Create a Supabase project, then `cp .env.example .env.local` and fill in the URL and publishable key (Project Settings → API).
+2. Supabase → Authentication → URL Configuration: add `http://localhost:3000/auth/callback` (and your prod URL) to the redirect URLs.
+3. Optional: turn on Google under Authentication → Providers. For fastest testing, turn off "Confirm email".
+4. `npm run dev`
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Routes
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `/` is the public landing page.
+- `/login` handles email/password sign-in and sign-up, plus Google.
+- `/auth/callback` completes the OAuth and email-confirm exchange.
+- `/dashboard` is protected (see `PROTECTED` in `lib/supabase/proxy.ts`).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## How we work
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `AGENTS.md`: grill → `docs/features/<slug>/{feature.md,design-spec.md}` → go-ahead → build. shadcn components come from the CLI only.
