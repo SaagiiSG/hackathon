@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createTown, joinTown } from "@/lib/town/client";
 import { MOCK_TOWN, MOCK_VIEWER } from "@/lib/town/mock";
 import type { Town } from "@/lib/town/types";
@@ -73,23 +74,18 @@ export function Onboarding({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-1 rounded-lg bg-surface p-1">
-          {(["start", "join"] as const).map((t) => (
-            <Button
-              key={t}
-              type="button"
-              variant={tab === t ? "outline" : "ghost"}
-              aria-pressed={tab === t}
-              className="h-9"
-              onClick={() => {
-                setTab(t);
-                setError(null);
-              }}
-            >
-              {t === "start" ? "Start a town" : "Join with a code"}
-            </Button>
-          ))}
-        </div>
+        <Tabs
+          value={tab}
+          onValueChange={(t) => {
+            setTab(t as "start" | "join");
+            setError(null);
+          }}
+        >
+          <TabsList className="grid h-10 w-full grid-cols-2">
+            <TabsTrigger value="start">Start a town</TabsTrigger>
+            <TabsTrigger value="join">Join with a code</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         <form onSubmit={submit} className="flex flex-col gap-4">
           {tab === "start" ? (

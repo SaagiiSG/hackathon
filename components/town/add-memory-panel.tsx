@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { Loader2, X } from "lucide-react";
+import { CalendarDays, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Calendar } from "@/components/ui/calendar";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { fullDay, today } from "@/lib/town/dates";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { fromDay, fullDay, toDay, today } from "@/lib/town/dates";
 import { MAX_PHOTO_BYTES, PHOTO_TYPES, photoDate, saveMemory } from "@/lib/town/client";
 import type { Memory, MemoryKind, Town, Viewer } from "@/lib/town/types";
 
@@ -33,12 +37,7 @@ export function AddMemoryPanel({
   const [dayFromPhoto, setDayFromPhoto] = useState(false);
   const [errors, setErrors] = useState<{ title?: string; photo?: string }>({});
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !saving && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, saving]);
+  const [pickingDay, setPickingDay] = useState(false);
 
   const pickPhoto = async (file: File | null) => {
     setErrors((e) => ({ ...e, photo: undefined }));
@@ -89,46 +88,34 @@ export function AddMemoryPanel({
   };
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center overflow-y-auto bg-ink/25 p-3" onClick={() => !saving && onClose()}>
-      <Card
-        role="dialog"
-        aria-modal
-        aria-labelledby="add-memory-title"
-        className="w-full max-w-md gap-5 px-5 py-5 shadow-[0_16px_48px_-8px_rgba(15,15,15,0.16)]"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
+      <DialogContent
+        className="max-h-[calc(100dvh-1.5rem)] gap-5 overflow-y-auto sm:max-w-md"
+        showCloseButton={!saving}
+        onInteractOutside={(e) => saving && e.preventDefault()}
       >
-        <div className="flex items-center justify-between">
-          <h2 id="add-memory-title" className="text-lg font-semibold text-ink">
-            Add a memory
-          </h2>
-          <Button variant="ghost" size="icon" onClick={onClose} disabled={saving} aria-label="Close">
-            <X />
-          </Button>
-        </div>
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold text-ink">Add a memory</DialogTitle>
+        </DialogHeader>
 
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <fieldset className="flex flex-col gap-2" disabled={saving}>
             <legend className="mb-2 text-sm font-medium text-ink">Who was there?</legend>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant={kind === "shared" ? "default" : "outline"}
-                aria-pressed={kind === "shared"}
-                className="h-10"
-                onClick={() => setKind("shared")}
-              >
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              value={kind}
+              onValueChange={(v) => v && setKind(v as MemoryKind)}
+              className="grid w-full grid-cols-2"
+              aria-label="Who was there?"
+            >
+              <ToggleGroupItem value="shared" className="h-10 w-full">
                 With friends
-              </Button>
-              <Button
-                type="button"
-                variant={kind === "solo" ? "default" : "outline"}
-                aria-pressed={kind === "solo"}
-                className="h-10"
-                onClick={() => setKind("solo")}
-              >
+              </ToggleGroupItem>
+              <ToggleGroupItem value="solo" className="h-10 w-full">
                 Just me
-              </Button>
-            </div>
+              </ToggleGroupItem>
+            </ToggleGroup>
             <p className="text-[13px] text-steel">
               {kind === "shared"
                 ? "Shared memories build the city."
@@ -180,37 +167,46 @@ export function AddMemoryPanel({
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="memory-body">{photo ? "Add a caption (optional)" : "Tell the story (optional)"}</Label>
-            <Input
+            <Textarea
               id="memory-body"
               value={body}
               maxLength={2000}
               disabled={saving}
+              rows={3}
               placeholder={photo ? "What's going on in this photo?" : "Who was there, what was funny, what you want to remember."}
-              className="h-11"
               onChange={(e) => setBody(e.target.value)}
             />
           </div>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="memory-day">When was it?</Label>
-            <Input
-              id="memory-day"
-              type="date"
-              value={day}
-              max={today()}
-              disabled={saving}
-              className="h-11"
-              onChange={(e) => {
-                if (e.target.value) setDay(e.target.value > today() ? today() : e.target.value);
-                setDayFromPhoto(false);
-              }}
-            />
-            <p className="text-[13px] text-steel">
-              {dayFromPhoto ? `Date taken from your photo: ${fullDay(day)}.` : fullDay(day)}
-            </p>
+            <Popover open={pickingDay} onOpenChange={setPickingDay}>
+              <PopoverTrigger asChild>
+                <Button id="memory-day" type="button" variant="outline" className="h-11 justify-start" disabled={saving}>
+                  <CalendarDays />
+                  {fullDay(day)}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={fromDay(day)}
+                  defaultMonth={fromDay(day)}
+                  captionLayout="dropdown"
+                  disabled={{ after: new Date() }}
+                  onSelect={(date) => {
+                    if (!date) return;
+                    setDay(toDay(date));
+                    setDayFromPhoto(false);
+                    setPickingDay(false);
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
+            {dayFromPhoto && <p className="text-[13px] text-steel">Date taken from your photo: {fullDay(day)}.</p>}
           </div>
 
-          <div className="flex justify-end gap-2 pt-1">
+          <DialogFooter className="pt-1">
             <Button type="button" variant="outline" className="h-10" onClick={onClose} disabled={saving}>
               Cancel
             </Button>
@@ -218,9 +214,9 @@ export function AddMemoryPanel({
               {saving && <Loader2 className="animate-spin" />}
               {saving ? "Adding…" : "Add to town"}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
-      </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

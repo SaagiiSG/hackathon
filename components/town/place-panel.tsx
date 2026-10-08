@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { Pencil, Plus, X } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { monthKey, monthName, shortDay } from "@/lib/town/dates";
 import { nameBuilding } from "@/lib/town/client";
 import { plural, type TownLayout } from "@/lib/town/layout";
@@ -15,6 +16,18 @@ import type { Memory, Town, Viewer } from "@/lib/town/types";
 function listNames(names: string[]) {
   if (names.length <= 1) return names.join("");
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+function useIsDesktop() {
+  return useSyncExternalStore(
+    (cb) => {
+      const q = window.matchMedia("(min-width: 768px)");
+      q.addEventListener("change", cb);
+      return () => q.removeEventListener("change", cb);
+    },
+    () => window.matchMedia("(min-width: 768px)").matches,
+    () => true,
+  );
 }
 
 // What opens when you click a building (a month) or a lodge (one friend's solo memories).
@@ -35,12 +48,7 @@ export function PlacePanel({
   onAdd: (month: string) => void;
   onNamed: (month: string, name: string) => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
+  const desktop = useIsDesktop();
   const building = layout.buildings.find((b) => b.key === placeKey);
   const lodge = layout.lodges.find((l) => l.key === placeKey);
   if (!building && !lodge) return null;
@@ -56,51 +64,49 @@ export function PlacePanel({
   const authors = [...new Set(memories.map((m) => m.authorId))].map((id) => member(id)?.displayName ?? "Someone");
 
   return (
-    <Card
-      role="dialog"
-      aria-label={building ? building.longLabel : `${lodge!.displayName}'s lodge`}
-      className="absolute inset-x-2 bottom-2 z-30 max-h-[75dvh] gap-4 overflow-y-auto px-5 py-5 shadow-[0_16px_48px_-8px_rgba(15,15,15,0.16)] md:inset-x-auto md:top-4 md:right-4 md:bottom-4 md:max-h-none md:w-[400px]"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-[22px] leading-tight font-semibold text-ink">
+    <Sheet open onOpenChange={(open) => !open && onClose()}>
+      <SheetContent
+        side={desktop ? "right" : "bottom"}
+        className="max-h-[80dvh] overflow-y-auto data-[side=right]:max-h-none data-[side=right]:sm:max-w-[400px]"
+      >
+        <SheetHeader className="pr-10">
+          <SheetTitle className="text-[22px] leading-tight font-semibold text-ink">
             {building ? building.longLabel : `${lodge!.displayName}'s lodge`}
-          </h2>
-          <p className="mt-1 text-sm text-slate">
+          </SheetTitle>
+          <SheetDescription className="text-sm text-slate">
             {building
               ? `${plural(memories.length, "shared memory", "shared memories")} from ${listNames(authors)}`
               : `${plural(memories.length, "solo memory", "solo memories")} in the woods`}
-          </p>
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-4 px-4 pb-4">
+
+          {building && (
+            <BuildingName
+              key={building.name ?? ""}
+              town={town}
+              viewer={viewer}
+              month={building.month}
+              name={building.name}
+              onNamed={onNamed}
+            />
+          )}
+
+          <ol className="flex flex-col gap-3">
+            {memories.map((m) => (
+              <MemoryCard key={m.id} memory={m} author={member(m.authorId)} />
+            ))}
+          </ol>
+
+          {building && (
+            <Button variant="outline" className="h-10" onClick={() => onAdd(building.month)}>
+              <Plus />
+              Add a memory to {monthName(building.month)}
+            </Button>
+          )}
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-          <X />
-        </Button>
-      </div>
-
-      {building && (
-        <BuildingName
-          key={building.name ?? ""}
-          town={town}
-          viewer={viewer}
-          month={building.month}
-          name={building.name}
-          onNamed={onNamed}
-        />
-      )}
-
-      <ol className="flex flex-col gap-3">
-        {memories.map((m) => (
-          <MemoryCard key={m.id} memory={m} author={member(m.authorId)} />
-        ))}
-      </ol>
-
-      {building && (
-        <Button variant="outline" className="h-10" onClick={() => onAdd(building.month)}>
-          <Plus />
-          Add a memory to {monthName(building.month)}
-        </Button>
-      )}
-    </Card>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -174,6 +180,7 @@ function BuildingName({
 
 function MemoryCard({ memory, author }: { memory: Memory; author?: Town["members"][number] }) {
   const [broken, setBroken] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   return (
     <li className="overflow-hidden rounded-xl border border-hairline bg-white">
       {memory.photoUrl &&
@@ -182,13 +189,17 @@ function MemoryCard({ memory, author }: { memory: Memory; author?: Town["members
             Photo unavailable
           </div>
         ) : (
-          // eslint-disable-next-line @next/next/no-img-element -- signed URLs and local previews
-          <img
-            src={memory.photoUrl}
-            alt={memory.title}
-            className="aspect-[4/3] w-full object-cover"
-            onError={() => setBroken(true)}
-          />
+          <div className="relative aspect-[4/3]">
+            {!loaded && <Skeleton className="absolute inset-0 rounded-none" />}
+            {/* eslint-disable-next-line @next/next/no-img-element -- signed URLs and local previews */}
+            <img
+              src={memory.photoUrl}
+              alt={memory.title}
+              className="size-full object-cover"
+              onLoad={() => setLoaded(true)}
+              onError={() => setBroken(true)}
+            />
+          </div>
         ))}
       <div className="flex flex-col gap-1 px-4 py-3">
         <p className="font-medium text-ink">{memory.title}</p>

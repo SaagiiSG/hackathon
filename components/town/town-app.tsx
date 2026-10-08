@@ -4,13 +4,26 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { Copy, Maximize, Minus, Plus } from "lucide-react";
+import { CalendarDays, Maximize, Minus, Plus, UserPlus } from "lucide-react";
 import { signOut } from "@/app/login/actions";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Progress } from "@/components/ui/progress";
+import { Slider } from "@/components/ui/slider";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { longMonthLabel, monthKey } from "@/lib/town/dates";
 import { buildLayout, plural, progressFor, unlockCrossed } from "@/lib/town/layout";
-import { friendBgClass } from "@/lib/town/palette";
+import { friendRingClass } from "@/lib/town/palette";
 import type { Memory, Town, TownState, Viewer } from "@/lib/town/types";
 import { AddMemoryPanel } from "./add-memory-panel";
 import { Onboarding } from "./onboarding";
@@ -40,6 +53,11 @@ function useReducedMotion() {
 
 export function formatCode(code: string) {
   return `${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.trim().slice(0, 2)).toUpperCase() || "?";
 }
 
 function copyCode(code: string) {
@@ -148,6 +166,10 @@ function TownView({
   const progress = progressFor(layout.total);
   const empty = town.memories.length === 0;
   const step = (d: number) => setZoom((z) => Math.min(1, Math.max(0, z + d)));
+  const me = town.members.find((m) => m.userId === viewer.id);
+  const months = [...layout.buildings].sort((a, b) => b.month.localeCompare(a.month));
+  const count = (month: string) =>
+    town.memories.filter((m) => m.kind === "shared" && monthKey(m.happenedOn) === month).length;
 
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-card-tint-mint">
@@ -170,37 +192,82 @@ function TownView({
       {/* Town bar */}
       <Card className="absolute top-3 left-3 z-20 max-w-[calc(100%-6rem)] gap-2 px-4 py-3 shadow-[0_4px_12px_rgba(15,15,15,0.08)] md:top-4 md:left-4">
         <h1 className="truncate text-lg leading-snug font-semibold text-ink">{town.name}</h1>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="flex flex-wrap items-center gap-1.5">
           {town.members.map((m) => (
-            <span key={m.userId} className="flex items-center gap-1.5 text-[13px] text-slate">
-              <span className={`size-2.5 rounded-full ${friendBgClass(m.colorIndex)}`} aria-hidden />
-              {m.displayName}
-            </span>
+            <Tooltip key={m.userId}>
+              <TooltipTrigger asChild>
+                <Avatar size="sm" className={`ring-2 ring-offset-1 ${friendRingClass(m.colorIndex)}`}>
+                  <AvatarFallback className="text-[11px] font-semibold text-ink">{initials(m.displayName)}</AvatarFallback>
+                </Avatar>
+              </TooltipTrigger>
+              <TooltipContent>{m.displayName}</TooltipContent>
+            </Tooltip>
           ))}
         </div>
-        <div className="flex items-center gap-2 text-[13px] text-steel">
-          <span>
-            Invite code <span className="font-semibold tracking-[1px] text-ink">{formatCode(town.inviteCode)}</span>
-          </span>
-          <Button variant="ghost" size="icon-sm" onClick={() => copyCode(town.inviteCode)} aria-label="Copy invite code">
-            <Copy />
-          </Button>
+        <div className="-ml-2 flex items-center gap-1">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="sm">
+                <UserPlus />
+                Invite
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="flex w-72 flex-col gap-2">
+              <p className="text-sm font-medium text-ink">Invite friends</p>
+              <p className="text-[22px] font-semibold tracking-[1px] text-ink">{formatCode(town.inviteCode)}</p>
+              <p className="text-[13px] text-steel">Friends sign up, choose Join with a code, and type this in.</p>
+              <Button variant="outline" size="sm" className="self-start" onClick={() => copyCode(town.inviteCode)}>
+                Copy code
+              </Button>
+            </PopoverContent>
+          </Popover>
+          {months.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <CalendarDays />
+                  Months
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                {months.map((b) => (
+                  <DropdownMenuItem key={b.key} onSelect={() => select(b.key)}>
+                    {b.longLabel} · {count(b.month)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </Card>
 
       {/* Account */}
       <div className="absolute top-3 right-3 z-20 md:top-4 md:right-4">
-        {mock ? (
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/">Exit demo</Link>
-          </Button>
-        ) : (
-          <form action={signOut}>
-            <Button type="submit" variant="outline" size="sm" title={viewer.email}>
-              Sign out
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="rounded-full" aria-label="Account">
+              <Avatar className={me ? `ring-2 ring-offset-1 ${friendRingClass(me.colorIndex)}` : undefined}>
+                <AvatarFallback className="bg-white text-xs font-semibold text-ink">
+                  {initials(me?.displayName ?? viewer.email)}
+                </AvatarFallback>
+              </Avatar>
             </Button>
-          </form>
-        )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="truncate text-[13px] font-normal text-steel">
+              {mock ? "Demo town" : viewer.email}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => copyCode(town.inviteCode)}>Copy invite code</DropdownMenuItem>
+            {mock ? (
+              <DropdownMenuItem asChild>
+                <Link href="/">Exit demo</Link>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Progress */}
@@ -209,9 +276,7 @@ function TownView({
           <p className="text-sm font-medium text-ink">
             {plural(layout.total, "memory", "memories")} · {plural(layout.months, "month")}
           </p>
-          <div className="h-1.5 w-48 overflow-hidden rounded-full bg-hairline" aria-hidden>
-            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progress.pct}%` }} />
-          </div>
+          <Progress value={progress.pct} className="h-1.5 w-48 bg-hairline-soft" aria-label="Progress to the next unlock" />
           <p className="text-[13px] text-slate">{progress.caption}</p>
         </Card>
       )}
@@ -245,24 +310,34 @@ function TownView({
         <Button variant="ghost" size="icon" onClick={() => step(-0.1)} aria-label="Zoom out">
           <Minus />
         </Button>
-        <span className="hidden w-10 text-center text-[12px] font-medium text-steel tabular-nums md:block">
-          {Math.round(zoom * 100)}%
-        </span>
+        <Slider
+          value={[zoom]}
+          min={0}
+          max={1}
+          step={0.01}
+          onValueChange={([z]) => setZoom(z)}
+          className="w-24 md:w-32"
+          aria-label="Zoom"
+        />
         <Button variant="ghost" size="icon" onClick={() => step(0.1)} aria-label="Zoom in">
           <Plus />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            setSelected(null);
-            setCommand({ type: "reset", n: Date.now() });
-          }}
-          aria-label="Reset view"
-          title="Reset view"
-        >
-          <Maximize />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                setSelected(null);
+                setCommand({ type: "reset", n: Date.now() });
+              }}
+              aria-label="Reset view"
+            >
+              <Maximize />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Reset view</TooltipContent>
+        </Tooltip>
       </Card>
 
       {selected && (
