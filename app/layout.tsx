@@ -10,8 +10,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Hackathon",
-  description: "Hackathon app",
+  title: "Memotown",
+  description: "Your friend group's memories, built into a little 3D town.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

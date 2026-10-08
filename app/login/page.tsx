@@ -19,7 +19,7 @@ export default function LoginPage() {
           <span className="size-3 rounded-full bg-brand-teal" />
         </div>
         <p className="max-w-md text-[28px] font-semibold leading-tight">
-          One line on why someone should sign in.
+          Every hangout adds a floor.
         </p>
       </aside>
     </main>

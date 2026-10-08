@@ -1,10 +1,17 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { MOCK_DATA } from "@/lib/mode";
 
 // Routes that require a signed-in user. Everything else is public.
-const PROTECTED = ["/dashboard"];
+const PROTECTED = ["/town"];
 
 export async function updateSession(request: NextRequest) {
+  // Mock mode has no Supabase: skip auth and send sign-in straight to the demo town.
+  if (MOCK_DATA) {
+    if (request.nextUrl.pathname === "/login") return NextResponse.redirect(new URL("/town", request.url));
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -41,7 +48,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && path === "/login") {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = "/town";
     url.search = "";
     return NextResponse.redirect(url);
   }

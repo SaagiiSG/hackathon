@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
+  async redirects() {
+    return [{ source: "/dashboard", destination: "/town", permanent: false }];
+  },
   turbopack: {
     // A stray ~/package-lock.json otherwise pulls the home dir into build scope.
     root: __dirname,

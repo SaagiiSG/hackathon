@@ -8,7 +8,7 @@ export type AuthState = { error?: string; message?: string };
 
 function safeNext(next: FormDataEntryValue | null) {
   const n = typeof next === "string" ? next : "";
-  return n.startsWith("/") && !n.startsWith("//") ? n : "/dashboard";
+  return n.startsWith("/") && !n.startsWith("//") ? n : "/town";
 }
 
 export async function signIn(_: AuthState, formData: FormData): Promise<AuthState> {
@@ -31,7 +31,7 @@ export async function signUp(_: AuthState, formData: FormData): Promise<AuthStat
   });
   if (error) return { error: error.message };
   // With email confirmation off, Supabase returns a session right away.
-  if (data.session) redirect("/dashboard");
+  if (data.session) redirect("/town");
   return { message: "Check your email for a confirmation link." };
 }
 

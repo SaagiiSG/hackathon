@@ -4,6 +4,17 @@
 
 The spec uses only existing DESIGN.md tokens. No new values are needed.
 
+## Revision 2 (Oct 8, during the build): these rules override the sections below
+
+- **Look follows the reference image** in `docs/reference/`: `card-tint-mint` ground and fog, near-isometric camera from the south-east, `hairline-strong` streets with `canvas` lane dashes, raised `canvas` plot pads, low-poly `brand-teal` trees, drifting low-poly `canvas` clouds that cast shadows. Replaces the all-white ground.
+- **Shared vs solo.** The Add memory form starts with "Who was there?": "With friends" (shared, default) or "Just me" (solo). Helper text: "Shared memories build the city." / "Solo memories grow your lodge in the woods."
+- **Shared memories build modern apartments** downtown, one per month: `canvas` floor slabs, `steel` glass bands, a thin band in the author's color per floor. 8+ floors becomes a skyscraper with a setback crown and an antenna.
+- **Solo memories grow lodges** in the woods ring around downtown, one lodge per friend: `brand-brown` walls, roof in the friend's color, lit `brand-yellow` windows. It widens with each solo memory and gains a side wing at 3. Label "SAAGII'S LODGE". Clicking it opens a panel titled "Saagii's lodge", "{n} solo memories in the woods".
+- **Naming buildings.** The month panel shows the building's name in quotes with a rename button, or a "Name this building" link. Up to 60 characters. The name shows under the month label in the town. Toast: "Building named."
+- **Photos.** Picking a photo reads the date it was taken from the photo's metadata and fills "When was it?" (caption under the field: "Date taken from your photo: Jul 14, 2026."). People can still change it. With a photo attached, the text field label becomes "Add a caption (optional)".
+- **Progress and unlocks count every memory**, shared and solo.
+- **Interim UI:** the shadcn registry is blocked in the cloud build environment, so the first build composes only Button, Card, Input, Label and Sonner. The Add memory dialog and the month sheet are Card panels, the date is a native date input, the story is a one-line Input, and zoom is − / + / reset buttons with a percentage. Swap in Dialog, Sheet, Slider, Textarea, Popover + Calendar, Tabs, Avatar, Progress and Toggle Group once the CLI can add them.
+
 ## Routes and entry points
 
 | Route | What it shows | Priority |

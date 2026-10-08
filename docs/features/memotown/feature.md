@@ -1,6 +1,6 @@
 # Memotown
 
-A friend group's shared memories (notes and photos) build a small white 3D town. Every month becomes a building, every memory adds a floor, and the town gets roads, parks and cars as the group shares more.
+A friend group's memories (notes and photos) build a small 3D town. Shared memories build modern apartments and skyscrapers downtown: every month is a building, every memory adds a floor, and anyone can name a building ("The best month of my life"). Solo memories grow that friend's lodge in the woods around the city. The town gets roads, parks and cars as the group shares more.
 
 Items marked _(inferred)_ came from Claude, not the team. Confirm or correct them at the gate.
 
@@ -30,6 +30,7 @@ Put a moment somewhere the whole group can see it, and see what the friendship h
 - **Not photo backup.** One photo per memory, up to 5 MB.
 - **Not chat.** No comments, reactions or messages.
 - **Not friend requests.** Friends join with an 8-character invite code.
+- **Not people tagging.** Who was there is obvious: a shared memory means the group, a solo memory means just you.
 - **Not several towns per person.** One town per person for now.
 - **Not location, voice or video memories.** They are on the roadmap, not in this build.
 - **Not live.** A friend's new memory shows up the next time you open or refresh the town.
