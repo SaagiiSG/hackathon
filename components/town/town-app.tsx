@@ -1,9 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { CalendarDays, Maximize, Minus, Plus, UserPlus } from "lucide-react";
+import { CalendarDays, Maximize, Minus, Plus, UserPlus, Volume2, VolumeX } from "lucide-react";
 import { signOut } from "@/app/login/actions";
 import { GlassPanel } from "@/components/glass-panel";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -23,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { longMonthLabel, monthKey } from "@/lib/town/dates";
 import { buildLayout, plural, progressFor, unlockCrossed } from "@/lib/town/layout";
 import { friendRingClass } from "@/lib/town/palette";
+import { sound } from "@/lib/town/sound";
 import type { Memory, Town, TownState, Viewer } from "@/lib/town/types";
 import { AddMemoryPanel } from "./add-memory-panel";
 import { Onboarding } from "./onboarding";
@@ -48,6 +49,35 @@ function useReducedMotion() {
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     () => false,
   );
+}
+
+const noSubscribe = () => () => {};
+
+// Browsers only start audio from a user gesture, so the first press anywhere unlocks it.
+function useSound(traffic: number) {
+  const stored = useSyncExternalStore(noSubscribe, () => sound.isEnabled(), () => true);
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    const unlock = () => {
+      sound.unlock();
+      window.removeEventListener("pointerdown", unlock, true);
+      window.removeEventListener("keydown", unlock, true);
+    };
+    window.addEventListener("pointerdown", unlock, true);
+    window.addEventListener("keydown", unlock, true);
+    return () => {
+      window.removeEventListener("pointerdown", unlock, true);
+      window.removeEventListener("keydown", unlock, true);
+      sound.pause();
+    };
+  }, []);
+  useEffect(() => sound.setTraffic(traffic), [traffic]);
+  const enabled = on ?? stored;
+  const toggle = () => {
+    sound.setEnabled(!enabled);
+    setOn(!enabled);
+  };
+  return [enabled, toggle] as const;
 }
 
 export function formatCode(code: string) {
@@ -78,7 +108,7 @@ export function TownApp({ initial }: { initial: TownState }) {
 
   if (state.kind === "onboarding") {
     return (
-      <main className="relative h-dvh w-full overflow-hidden bg-card-tint-mint">
+      <main className="relative h-dvh w-full overflow-hidden bg-background">
         <div className="absolute inset-0 opacity-60" aria-hidden>
           <TownScene
             layout={EMPTY_TOWN}
@@ -126,6 +156,8 @@ function TownView({
   const [zoom, setZoom] = useState(0.25);
   const [command, setCommand] = useState<SceneCommand | null>(null);
   const [adding, setAdding] = useState<{ month?: string } | null>(null);
+  // Cars park under reduced motion, so the engines go quiet with them.
+  const [soundOn, toggleSound] = useSound(reducedMotion ? 0 : layout.carCount);
 
   const select = (key: string) => {
     setSelected(key);
@@ -164,9 +196,24 @@ function TownView({
   const months = [...layout.buildings].sort((a, b) => b.month.localeCompare(a.month));
   const count = (month: string) =>
     town.memories.filter((m) => m.kind === "shared" && monthKey(m.happenedOn) === month).length;
+  // Up to 6 of the selected place's photos, newest last, for the scene's photo fan.
+  const selectedPhotos = useMemo(() => {
+    if (!selected) return [];
+    const [kind, id] = [selected.slice(0, selected.indexOf(":")), selected.slice(selected.indexOf(":") + 1)];
+    return town.memories
+      .filter((m) =>
+        kind === "month"
+          ? m.kind === "shared" && monthKey(m.happenedOn) === id
+          : m.kind === "solo" && m.authorId === id,
+      )
+      .filter((m) => m.photoUrl)
+      .sort((a, b) => a.happenedOn.localeCompare(b.happenedOn) || a.createdAt.localeCompare(b.createdAt))
+      .slice(-6)
+      .map((m) => ({ id: m.id, url: m.photoUrl!, title: m.title }));
+  }, [selected, town.memories]);
 
   return (
-    <main className="relative h-dvh w-full overflow-hidden bg-card-tint-mint">
+    <main className="relative h-dvh w-full overflow-hidden bg-background">
       <div
         className="absolute inset-0"
         role="img"
@@ -180,11 +227,13 @@ function TownView({
           onZoom={setZoom}
           command={command}
           reducedMotion={reducedMotion}
+          selectedPhotos={selectedPhotos}
+          onAddTo={(month) => setAdding({ month })}
         />
       </div>
 
       {/* Town bar */}
-      <GlassPanel className="absolute top-3 left-3 z-20 max-w-[calc(100%-6rem)] gap-2 px-4 py-3 md:top-4 md:left-4">
+      <GlassPanel className="absolute top-3 left-3 z-20 max-w-[calc(100%-8.5rem)] gap-2 px-4 py-3 md:top-4 md:left-4 md:max-w-sm">
         <h1 className="truncate text-lg leading-snug font-semibold text-ink">{town.name}</h1>
         <div className="flex flex-wrap items-center gap-1.5">
           {town.members.map((m) => (
@@ -235,8 +284,22 @@ function TownView({
         </div>
       </GlassPanel>
 
-      {/* Account */}
-      <div className="absolute top-3 right-3 z-20 md:top-4 md:right-4">
+      {/* Sound + account */}
+      <div className="absolute top-3 right-3 z-20 flex gap-2 md:top-4 md:right-4">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="glass-clear size-11 rounded-full"
+              onClick={toggleSound}
+              aria-label={soundOn ? "Mute sound" : "Turn sound on"}
+            >
+              {soundOn ? <Volume2 /> : <VolumeX />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{soundOn ? "Mute sound" : "Turn sound on"}</TooltipContent>
+        </Tooltip>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="glass-clear size-11 rounded-full" aria-label="Account">
@@ -260,18 +323,18 @@ function TownView({
 
       {/* Progress */}
       {!empty && (
-        <GlassPanel className="absolute bottom-20 left-3 z-20 gap-1 px-4 py-3 md:bottom-4 md:left-4">
+        <GlassPanel className="absolute right-[4.25rem] bottom-[4.5rem] left-3 z-20 gap-1 px-4 py-2.5 md:right-auto md:bottom-4 md:left-4 md:py-3">
           <p className="text-sm font-medium text-ink">
             {plural(layout.total, "memory", "memories")} · {plural(layout.months, "month")}
           </p>
-          <Progress value={progress.pct} className="h-1.5 w-48 bg-hairline-soft" aria-label="Progress to the next unlock" />
+          <Progress value={progress.pct} className="h-1.5 w-full bg-hairline-soft md:w-48" aria-label="Progress to the next unlock" />
           <p className="text-[13px] text-slate">{progress.caption}</p>
         </GlassPanel>
       )}
 
       {/* Empty town */}
       {empty && (
-        <GlassPanel className="absolute bottom-20 left-1/2 z-20 w-[min(26rem,calc(100%-1.5rem))] -translate-x-1/2 gap-3 px-5 py-4">
+        <GlassPanel className="absolute bottom-[7.5rem] left-1/2 z-20 w-[min(26rem,calc(100%-1.5rem))] -translate-x-1/2 gap-3 px-5 py-4 md:bottom-20">
           <h2 className="text-lg font-semibold text-ink">Your town is an empty plot</h2>
           <p className="text-sm text-slate">
             Add your first memory and the first building goes up. Every memory adds a floor.
@@ -294,8 +357,8 @@ function TownView({
       </div>
 
       {/* Zoom */}
-      <GlassPanel className="absolute right-3 bottom-20 z-20 flex-row items-center gap-1 rounded-full p-1 md:right-4 md:bottom-4">
-        <Button variant="ghost" size="icon" onClick={() => step(-0.1)} aria-label="Zoom out">
+      <GlassPanel className="absolute right-3 bottom-[4.5rem] z-20 flex-row items-center gap-1 rounded-full p-1 md:right-4 md:bottom-4">
+        <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={() => step(-0.1)} aria-label="Zoom out">
           <Minus />
         </Button>
         <Slider
@@ -304,10 +367,10 @@ function TownView({
           max={1}
           step={0.01}
           onValueChange={([z]) => setZoom(z)}
-          className="w-24 md:w-32"
+          className="hidden w-32 md:flex"
           aria-label="Zoom"
         />
-        <Button variant="ghost" size="icon" onClick={() => step(0.1)} aria-label="Zoom in">
+        <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={() => step(0.1)} aria-label="Zoom in">
           <Plus />
         </Button>
         <Tooltip>

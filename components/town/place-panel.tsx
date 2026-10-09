@@ -64,10 +64,17 @@ export function PlacePanel({
   const authors = [...new Set(memories.map((m) => m.authorId))].map((id) => member(id)?.displayName ?? "Someone");
 
   return (
-    <Sheet open onOpenChange={(open) => !open && onClose()}>
+    // Non-modal: no scrim, so the town and the photos popping out of the building stay in view.
+    <Sheet open modal={false} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
+        onInteractOutside={(e) => {
+          if ((e.target as Element | null)?.closest?.("[data-town-photo]")) e.preventDefault();
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        // Non-modal sheets dismiss on focus leaving them; menus hand focus back to their trigger.
+        onFocusOutside={(e) => e.preventDefault()}
         side={desktop ? "right" : "bottom"}
-        className="glass max-h-[80dvh] overflow-y-auto bg-white/60 data-[side=bottom]:rounded-t-3xl data-[side=right]:max-h-none data-[side=right]:rounded-l-3xl data-[side=right]:sm:max-w-[400px]"
+        className="glass max-h-[60dvh] overflow-y-auto bg-white/60 data-[side=bottom]:rounded-t-3xl data-[side=right]:max-h-none data-[side=right]:rounded-l-3xl data-[side=right]:sm:max-w-[400px]"
       >
         <SheetHeader className="pr-10">
           <SheetTitle className="text-[22px] leading-tight font-semibold text-ink">

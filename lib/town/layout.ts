@@ -80,9 +80,9 @@ export function spiral(n: number): Plot {
 }
 
 export const UNLOCKS = [
-  { at: 10, next: "until your first park", message: "Your town just got its first park." },
+  { at: 10, next: "until a new park", message: "A new park opened in your town." },
   { at: 20, next: "until rush hour", message: "Rush hour: more cars are on the streets." },
-  { at: 30, next: "until streetlights and a second park", message: "Streetlights are on, and there's a second park." },
+  { at: 30, next: "until the streetlights come on", message: "Streetlights are on, and another park opened." },
   { at: 50, next: "until a landmark tower", message: "A landmark tower rose over your town." },
 ] as const;
 
