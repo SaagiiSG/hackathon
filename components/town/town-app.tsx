@@ -23,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { longMonthLabel, monthKey } from "@/lib/town/dates";
 import { buildLayout, plural, progressFor, unlockCrossed } from "@/lib/town/layout";
 import { friendRingClass } from "@/lib/town/palette";
+import { subscribeTown } from "@/lib/town/realtime";
 import { sound } from "@/lib/town/sound";
 import type { Memory, Town, TownState, Viewer } from "@/lib/town/types";
 import { AddMemoryPanel } from "./add-memory-panel";
@@ -132,9 +133,14 @@ export function TownApp({ initial }: { initial: TownState }) {
       town={state.town}
       viewer={state.viewer}
       reducedMotion={reducedMotion}
-      onTown={(town) => setState({ ...state, town })}
+      onTown={(update) => setState((s) => (s.kind === "town" ? { ...s, town: update(s.town) } : s))}
     />
   );
+}
+
+// Adds a memory once, whether it arrives from our own save or from Realtime first.
+function addMemory(town: Town, memory: Memory): Town {
+  return town.memories.some((m) => m.id === memory.id) ? town : { ...town, memories: [...town.memories, memory] };
 }
 
 function TownView({
@@ -146,7 +152,7 @@ function TownView({
   town: Town;
   viewer: Viewer;
   reducedMotion: boolean;
-  onTown: (town: Town) => void;
+  onTown: (update: (town: Town) => Town) => void;
 }) {
   const layout = useMemo(
     () => buildLayout(town.memories, town.members, town.buildingNames),
@@ -164,6 +170,31 @@ function TownView({
     setCommand({ type: "focus", key, n: Date.now() });
   };
 
+  // Live updates: a friend's memory builds its floor in everyone's town as it lands.
+  const townId = town.id;
+  useEffect(
+    () =>
+      subscribeTown(townId, {
+        onMemory: (memory) => {
+          onTown((t) => addMemory(t, memory));
+          if (memory.authorId === viewer.id) return; // our own save already toasted and focused
+          const author = town.members.find((m) => m.userId === memory.authorId)?.displayName ?? "A friend";
+          toast(`${author} added “${memory.title}”.`);
+        },
+        onBuildingName: (month, name) =>
+          onTown((t) => ({ ...t, buildingNames: { ...t.buildingNames, [month]: name } })),
+        onMember: (member) =>
+          onTown((t) =>
+            t.members.some((m) => m.userId === member.userId)
+              ? t
+              : { ...t, members: [...t.members, { ...member, colorIndex: t.members.length }] },
+          ),
+      }),
+    // Resubscribe only when the town changes; handlers read fresh state through onTown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [townId, viewer.id],
+  );
+
   const onAdded = (memory: Memory) => {
     const before = town.memories.length;
     const month = monthKey(memory.happenedOn);
@@ -172,7 +203,7 @@ function TownView({
       !town.memories.some((m) => m.kind === "shared" && monthKey(m.happenedOn) === month);
     const newLodge =
       memory.kind === "solo" && !town.memories.some((m) => m.kind === "solo" && m.authorId === memory.authorId);
-    onTown({ ...town, memories: [...town.memories, memory] });
+    onTown((t) => addMemory(t, memory));
     setAdding(null);
     const key = memory.kind === "shared" ? `month:${month}` : `lodge:${memory.authorId}`;
     setCommand({ type: "focus", key, n: Date.now() });
@@ -400,7 +431,7 @@ function TownView({
           viewer={viewer}
           onClose={() => setSelected(null)}
           onAdd={(month) => setAdding({ month })}
-          onNamed={(month, name) => onTown({ ...town, buildingNames: { ...town.buildingNames, [month]: name } })}
+          onNamed={(month, name) => onTown((t) => ({ ...t, buildingNames: { ...t.buildingNames, [month]: name } }))}
         />
       )}
 

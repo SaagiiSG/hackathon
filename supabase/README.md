@@ -19,6 +19,10 @@
 2. You should see "Success. No rows returned". The file runs as one transaction. If it fails, nothing was created: fix the error and run it again.
 3. Check: Table Editor lists `groups`, `group_members`, `memories`, `building_names`. Storage lists a private bucket `memory-photos`.
 
+## 2b. Turn on live updates
+
+Open SQL Editor → New query, paste all of `realtime.sql` and click Run. Friends then see new memories, building names and members appear in their town without refreshing. RLS still applies, so people only receive rows from their own town.
+
 ## 3. Auth settings
 
 1. Authentication → Sign In / Providers → Email: turn OFF "Confirm email" and save (hackathon only).

@@ -182,7 +182,7 @@ function Rig({ layout, zoom, onZoom, command, reducedMotion }: Props) {
     if (!spot) return;
     const dist = THREE.MathUtils.clamp(Math.max(MIN_D * 2.2, spot.h * 3.4), MIN_D, range.current.max);
     // On phones the sheet covers the bottom 60%: aim below the place so it sits up top.
-    const shift = size.width < 640 ? dist * 0.2 : 0;
+    const shift = size.width < 640 ? dist * 0.75 : 0;
     goal.current = {
       target: new THREE.Vector3(spot.x + shift, 0, spot.z + shift),
       dist,
@@ -303,8 +303,11 @@ function useGrow(
 
 // ---------- Town ----------
 
-function TownContent({ layout, selected, onSelect, reducedMotion, selectedPhotos, onAddTo }: Props) {
+function TownContent({ layout, selected, onSelect, zoom, reducedMotion, selectedPhotos, onAddTo }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const phone = useThree((s) => s.size.width < 640);
+  // Phones: labels only when zoomed in, plus the hovered/selected one.
+  const compact = phone && zoom < 0.55;
 
   // Hover pill beside a building; stays while the pointer crosses onto it.
   const [finePointer] = useState(
@@ -325,11 +328,13 @@ function TownContent({ layout, selected, onSelect, reducedMotion, selectedPhotos
     }, 250);
   };
   useEffect(() => () => clearTimeout(tipTimer.current), []);
-  const tipBuilding = finePointer && onAddTo && tip !== selected ? layout.buildings.find((b) => b.key === tip) : undefined;
+  // Touch has no hover: show the pill for the tapped building instead.
+  const tipKey = finePointer ? (tip !== selected ? tip : null) : selected;
+  const tipBuilding = onAddTo ? layout.buildings.find((b) => b.key === tipKey) : undefined;
 
   // Photo fans: the selected one is open; others sink back and then drop out.
   const [fans, setFans] = useState<{ key: string; photos: ScenePhoto[] }[]>([]);
-  const photos = selectedPhotos ?? [];
+  const photos = (selectedPhotos ?? []).slice(phone ? -4 : -6);
   const current = fans.find((f) => f.key === selected);
   if (selected && photos.length > 0 && current?.photos.map((p) => p.id).join() !== photos.map((p) => p.id).join()) {
     setFans([...fans.filter((f) => f.key !== selected), { key: selected, photos }]);
@@ -379,6 +384,7 @@ function TownContent({ layout, selected, onSelect, reducedMotion, selectedPhotos
           }}
           onClick={pick(b.key)}
           reducedMotion={reducedMotion}
+          showLabel={!compact}
         />
       ))}
       {layout.parks.map((p, i) => (
@@ -399,6 +405,7 @@ function TownContent({ layout, selected, onSelect, reducedMotion, selectedPhotos
           onOut={() => setHovered((h) => (h === l.key ? null : h))}
           onClick={pick(l.key)}
           reducedMotion={reducedMotion}
+          showLabel={!compact}
         />
       ))}
       <Clouds outer={layout.outer} reducedMotion={reducedMotion} />
@@ -411,6 +418,7 @@ function TownContent({ layout, selected, onSelect, reducedMotion, selectedPhotos
             photos={f.photos}
             open={selected === f.key}
             reducedMotion={reducedMotion}
+            compact={phone}
             onClosed={() => setFans((list) => list.filter((x) => x.key !== f.key))}
           />
         ) : null;
@@ -419,6 +427,7 @@ function TownContent({ layout, selected, onSelect, reducedMotion, selectedPhotos
         <AddPill
           key={tipBuilding.key}
           b={tipBuilding}
+          compact={phone}
           reducedMotion={reducedMotion}
           onEnter={() => {
             overTip.current = true;
@@ -446,12 +455,14 @@ const stopMap = (e: React.PointerEvent | React.WheelEvent) => e.stopPropagation(
 
 function AddPill({
   b,
+  compact,
   reducedMotion,
   onEnter,
   onLeave,
   onClick,
 }: {
   b: Building;
+  compact: boolean;
   reducedMotion: boolean;
   onEnter: () => void;
   onLeave: () => void;
@@ -461,11 +472,18 @@ function AddPill({
   const h = b.floors.length * FLOOR_H;
   const portal = useHtmlPortal();
   return (
-    <group position={[b.plot.x * PLOT + FOOTPRINT / 2, PAD_H + Math.min(h, 4) * 0.5, b.plot.z * PLOT - FOOTPRINT / 2]}>
+    <group
+      position={
+        compact
+          ? [b.plot.x * PLOT + PAD / 2, 0, b.plot.z * PLOT + PAD / 2] // phones: centered under the building
+          : [b.plot.x * PLOT + FOOTPRINT / 2, PAD_H + Math.min(h, 4) * 0.5, b.plot.z * PLOT - FOOTPRINT / 2]
+      }
+    >
       <Html portal={portal} zIndexRange={[12, 11]} style={{ pointerEvents: "none" }}>
         <button
           type="button"
-          className={`glass-clear pointer-events-auto absolute top-0 left-0 flex -translate-y-1/2 translate-x-3 items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-medium whitespace-nowrap text-ink ${
+          data-town-photo
+          className={`glass-clear pointer-events-auto absolute top-0 left-0 flex ${compact ? "-translate-x-1/2 translate-y-2" : "-translate-y-1/2 translate-x-3"} items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-medium whitespace-nowrap text-ink ${
             reducedMotion ? "animate-in fade-in" : "animate-in fade-in slide-in-from-left-2"
           } duration-150`}
           onPointerEnter={onEnter}
@@ -492,10 +510,11 @@ function fanAnchor(layout: TownLayout, key: string): [number, number, number] | 
 }
 
 // Where card i of n settles: an arc above the roof, in screen pixels.
-function fanTarget(i: number, n: number) {
+function fanTarget(i: number, n: number, compact: boolean) {
   const half = Math.min(55, 16 * (n - 1));
   const a = THREE.MathUtils.degToRad(n === 1 ? 0 : -half + (2 * half * i) / (n - 1));
-  return { x: Math.sin(a) * 190, y: -Math.cos(a) * 190 + 40, r: THREE.MathUtils.radToDeg(a) * 0.35 };
+  const r = compact ? 120 : 190;
+  return { x: Math.sin(a) * r, y: -Math.cos(a) * r + (compact ? 20 : 40), r: THREE.MathUtils.radToDeg(a) * 0.35 };
 }
 
 // Small stable tilt per photo, -5..5 degrees.
@@ -521,12 +540,14 @@ function PhotoFan({
   photos,
   open,
   reducedMotion,
+  compact,
   onClosed,
 }: {
   anchor: [number, number, number];
   photos: ScenePhoto[];
   open: boolean;
   reducedMotion: boolean;
+  compact: boolean;
   onClosed: () => void;
 }) {
   const cards = useRef<(HTMLDivElement | null)[]>([]);
@@ -553,7 +574,7 @@ function PhotoFan({
       const want = open ? now - since.current! >= wait : now - since.current! < wait && st.out;
       if (want && !st.out) sound.playPop(i);
       st.out = want;
-      const t = fanTarget(i, n);
+      const t = fanTarget(i, n, compact);
       const tx = st.out ? t.x : 0;
       const ty = st.out ? t.y : 0;
       const ts = st.out ? 1 : 0;
@@ -597,7 +618,8 @@ function PhotoFan({
               ref={(el) => {
                 cards.current[i] = el;
               }}
-              className={`pointer-events-auto absolute top-0 left-0 w-24 rounded-[4px] bg-white p-1.5 pb-1 shadow-[0_8px_24px_-6px_rgba(15,15,15,0.25),0_0_0_1px_rgba(15,15,15,0.04)] ${
+              data-town-photo
+              className={`pointer-events-auto absolute top-0 left-0 ${compact ? "w-[72px]" : "w-24"} rounded-[4px] bg-white p-1.5 pb-1 shadow-[0_8px_24px_-6px_rgba(15,15,15,0.25),0_0_0_1px_rgba(15,15,15,0.04)] ${
                 reducedMotion ? "transition-opacity duration-200" : ""
               }`}
               style={{ transform: "translate(-50%, -50%) scale(0)", opacity: 0 }}
@@ -676,6 +698,7 @@ function BuildingMesh({
   onOut,
   onClick,
   reducedMotion,
+  showLabel,
 }: {
   b: Building;
   index: number;
@@ -684,6 +707,7 @@ function BuildingMesh({
   onOut: () => void;
   onClick: (e: ThreeEvent<MouseEvent>) => void;
   reducedMotion: boolean;
+  showLabel: boolean;
 }) {
   const h = b.floors.length * FLOOR_H;
   const tall = b.floors.length >= 8;
@@ -724,7 +748,6 @@ function BuildingMesh({
 }
 
 const SLAB = 0.1;
-const STRIPE = 0;
 const POST = 0.12;
 
 function FloorMesh({
@@ -746,7 +769,7 @@ function FloorMesh({
 }) {
   const ref = useRef<THREE.Group>(null);
   useGrow(ref, delays, reducedMotion, "y", onGrow);
-  const glass = FLOOR_H - SLAB - STRIPE;
+  const glass = FLOOR_H - SLAB;
   const facade = useMemo(() => facadeFor(memoryId, author), [memoryId, author]);
   return (
     <group ref={ref} position={[0, i * FLOOR_H, 0]}>
@@ -755,12 +778,12 @@ function FloorMesh({
         <meshStandardMaterial color={slab} />
         <Edges color={TOKENS.hairline} />
       </mesh>
-      <mesh position={[0, SLAB + STRIPE + glass / 2, 0]} castShadow receiveShadow>
+      <mesh position={[0, SLAB + glass / 2, 0]} castShadow receiveShadow>
         <boxGeometry args={[FOOTPRINT - 0.08, glass, FOOTPRINT - 0.08]} />
         <meshStandardMaterial map={facade} emissiveMap={facade} emissive={TOKENS.canvas} emissiveIntensity={0.12} />
       </mesh>
       {CORNERS.map(([cx, cz]) => (
-        <mesh key={`${cx}${cz}`} position={[cx, SLAB + STRIPE + glass / 2, cz]} castShadow>
+        <mesh key={`${cx}${cz}`} position={[cx, SLAB + glass / 2, cz]} castShadow>
           <boxGeometry args={[POST, glass, POST]} />
           <meshStandardMaterial color={slab} />
         </mesh>
@@ -1219,6 +1242,7 @@ function LodgeMesh({
   onOut,
   onClick,
   reducedMotion,
+  showLabel,
 }: {
   lodge: Lodge;
   active: boolean;
@@ -1226,6 +1250,7 @@ function LodgeMesh({
   onOut: () => void;
   onClick: (e: ThreeEvent<MouseEvent>) => void;
   reducedMotion: boolean;
+  showLabel: boolean;
 }) {
   const ref = useRef<THREE.Group>(null);
   useGrow(ref, { initial: 0.7, late: 0.75 }, reducedMotion, "pop", () => sound.playBuild("building"));
