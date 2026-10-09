@@ -121,6 +121,7 @@ function Lights({ outer }: { outer: number }) {
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-bias={-0.0004}
+        shadow-intensity={0.6}
       />
     </>
   );
@@ -181,8 +182,17 @@ function Rig({ layout, zoom, onZoom, command, reducedMotion }: Props) {
     const spot = spotFor(layout, command.key);
     if (!spot) return;
     const dist = THREE.MathUtils.clamp(Math.max(MIN_D * 2.2, spot.h * 3.4), MIN_D, range.current.max);
-    // On phones the sheet covers the bottom 60%: aim below the place so it sits up top.
-    const shift = size.width < 640 ? dist * 0.75 : 0;
+    // On phones the sheet covers the bottom 60%: slide the aim along the view so the
+    // roof lands at NDC y = 0.45 (about 28% from the top), solved from the camera geometry.
+    let shift = 0;
+    if (size.width < 640) {
+      const roof = spot.h + PAD_H;
+      const yt = 0.45 * Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+      const up = new THREE.Vector3(0, 1, 0).addScaledVector(DIR, -DIR.y).normalize();
+      const a = -2 * up.x; // screen-up per unit of shift along (1, 0, 1)
+      const b = 2 * DIR.x; // depth per unit of shift
+      shift = (yt * (dist - DIR.y * roof) - up.y * roof) / (a - b * yt);
+    }
     goal.current = {
       target: new THREE.Vector3(spot.x + shift, 0, spot.z + shift),
       dist,
@@ -475,7 +485,7 @@ function AddPill({
     <group
       position={
         compact
-          ? [b.plot.x * PLOT + PAD / 2, 0, b.plot.z * PLOT + PAD / 2] // phones: centered under the building
+          ? [b.plot.x * PLOT, PAD_H + h, b.plot.z * PLOT] // phones: centered just under the roof line
           : [b.plot.x * PLOT + FOOTPRINT / 2, PAD_H + Math.min(h, 4) * 0.5, b.plot.z * PLOT - FOOTPRINT / 2]
       }
     >
@@ -483,7 +493,7 @@ function AddPill({
         <button
           type="button"
           data-town-photo
-          className={`glass-clear pointer-events-auto absolute top-0 left-0 flex ${compact ? "-translate-x-1/2 translate-y-2" : "-translate-y-1/2 translate-x-3"} items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-medium whitespace-nowrap text-ink ${
+          className={`glass-clear pointer-events-auto absolute top-0 left-0 flex ${compact ? "-translate-x-1/2 translate-y-3" : "-translate-y-1/2 translate-x-3"} items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-medium whitespace-nowrap text-ink ${
             reducedMotion ? "animate-in fade-in" : "animate-in fade-in slide-in-from-left-2"
           } duration-150`}
           onPointerEnter={onEnter}
@@ -513,8 +523,9 @@ function fanAnchor(layout: TownLayout, key: string): [number, number, number] | 
 function fanTarget(i: number, n: number, compact: boolean) {
   const half = Math.min(55, 16 * (n - 1));
   const a = THREE.MathUtils.degToRad(n === 1 ? 0 : -half + (2 * half * i) / (n - 1));
-  const r = compact ? 120 : 190;
-  return { x: Math.sin(a) * r, y: -Math.cos(a) * r + (compact ? 20 : 40), r: THREE.MathUtils.radToDeg(a) * 0.35 };
+  // Phones: a flatter, lower arc so the cards stay clear of the town bar.
+  if (compact) return { x: Math.sin(a) * 105, y: -Math.cos(a) * 55, r: THREE.MathUtils.radToDeg(a) * 0.35 };
+  return { x: Math.sin(a) * 190, y: -Math.cos(a) * 190 + 40, r: THREE.MathUtils.radToDeg(a) * 0.35 };
 }
 
 // Small stable tilt per photo, -5..5 degrees.
@@ -619,7 +630,7 @@ function PhotoFan({
                 cards.current[i] = el;
               }}
               data-town-photo
-              className={`pointer-events-auto absolute top-0 left-0 ${compact ? "w-[72px]" : "w-24"} rounded-[4px] bg-white p-1.5 pb-1 shadow-[0_8px_24px_-6px_rgba(15,15,15,0.25),0_0_0_1px_rgba(15,15,15,0.04)] ${
+              className={`pointer-events-auto absolute top-0 left-0 ${compact ? "w-16" : "w-24"} rounded-[4px] bg-white p-1.5 pb-1 shadow-[0_8px_24px_-6px_rgba(15,15,15,0.25),0_0_0_1px_rgba(15,15,15,0.04)] ${
                 reducedMotion ? "transition-opacity duration-200" : ""
               }`}
               style={{ transform: "translate(-50%, -50%) scale(0)", opacity: 0 }}
@@ -1189,27 +1200,57 @@ function Clouds({ outer, reducedMotion }: { outer: number; reducedMotion: boolea
   );
 }
 
+// Radial falloff used as the alpha of the soft cloud shadows.
+let softBlob: THREE.CanvasTexture | null = null;
+function softBlobTexture() {
+  if (softBlob) return softBlob;
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, "#ffffff");
+  grad.addColorStop(0.45, "#9a9a9a");
+  grad.addColorStop(1, "#000000");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  softBlob = new THREE.CanvasTexture(c);
+  return softBlob;
+}
+
+// Where a cloud's shadow lands, per unit of height (matches the sun in Lights).
+const SHADOW_DX = -0.5 / 1.6;
+const SHADOW_DZ = 0.35 / 1.6;
+
 function Cloud({ x, z, y, s, speed, span, reducedMotion }: { x: number; z: number; y: number; s: number; speed: number; span: number; reducedMotion: boolean }) {
   const ref = useRef<THREE.Group>(null);
+  const shade = useRef<THREE.Mesh>(null);
+  const blob = useMemo(() => softBlobTexture(), []);
   useFrame(({ clock }) => {
     if (!ref.current) return;
     const t = reducedMotion ? 0 : clock.elapsedTime * speed;
     ref.current.position.x = ((((x + t + span) % (2 * span)) + 2 * span) % (2 * span)) - span;
+    if (shade.current) shade.current.position.x = ref.current.position.x + SHADOW_DX * y;
   });
   return (
-    <group ref={ref} position={[x, y, z]} scale={s}>
-      {[
-        [0, 0, 0, 1],
-        [0.9, -0.15, 0.2, 0.75],
-        [-0.85, -0.2, -0.1, 0.7],
-        [0.2, 0.35, -0.3, 0.65],
-      ].map(([cx, cy, cz, r], i) => (
-        <mesh key={i} position={[cx, cy, cz]} castShadow>
-          <icosahedronGeometry args={[r, 1]} />
-          <meshStandardMaterial color={TOKENS.canvas} flatShading />
-        </mesh>
-      ))}
-    </group>
+    <>
+      <mesh ref={shade} position={[x + SHADOW_DX * y, 0.04, z + SHADOW_DZ * y]} rotation-x={-Math.PI / 2} renderOrder={1}>
+        <planeGeometry args={[4.6 * s, 3.4 * s]} />
+        <meshBasicMaterial color={TOKENS.charcoal} alphaMap={blob} transparent opacity={0.16} depthWrite={false} />
+      </mesh>
+      <group ref={ref} position={[x, y, z]} scale={s}>
+        {[
+          [0, 0, 0, 1],
+          [0.9, -0.15, 0.2, 0.75],
+          [-0.85, -0.2, -0.1, 0.7],
+          [0.2, 0.35, -0.3, 0.65],
+        ].map(([cx, cy, cz, r], i) => (
+          <mesh key={i} position={[cx, cy, cz]}>
+            <icosahedronGeometry args={[r, 1]} />
+            <meshStandardMaterial color={TOKENS.canvas} flatShading />
+          </mesh>
+        ))}
+      </group>
+    </>
   );
 }
 
