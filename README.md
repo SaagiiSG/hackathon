@@ -1,21 +1,23 @@
-# Hackathon
+# Memotown
 
-Next.js 16, Supabase Auth, shadcn/ui, and the Notion `DESIGN.md` from [awesome-design-md](https://github.com/VoltAgent/awesome-design-md).
+A friend group shares one white 3D city. Each month of shared memories is a building that grows a floor. Solo memories grow that person's lodge. Parks, cars, streetlights, and a landmark show up as the town gets bigger.
+
+Sign up with email, start a town or join with an 8-character code, and add a photo. The city updates for everyone in the town.
+
+**Live demo:** [memotown.vercel.app/town](https://memotown.vercel.app/town)
+
+## Team
+
+- [Saran Ochir](https://github.com/SaagiiSG) - frontend, 3D city, UI, and Vercel
+- [Enkhbuted Munguntulga](https://github.com/welcometovicecity) - frontend UI
+- [Tomi Alo](https://github.com/tomi-alo) - Supabase project, auth, Postgres, and private photo storage
+- [Hachem Abou Saleh](https://github.com/g4nmzrrzwn-blip) - product idea, pitch and organization
 
 ## Setup
 
-1. Create a Supabase project, then `cp .env.example .env.local` and fill in the URL and publishable key (Project Settings → API).
-2. Supabase → Authentication → URL Configuration: add `http://localhost:3000/auth/callback` (and your prod URL) to the redirect URLs.
-3. Optional: turn on Google under Authentication → Providers. For fastest testing, turn off "Confirm email".
-4. `npm run dev`
+1. `cp .env.example .env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+2. In the Supabase SQL Editor, run `supabase/schema.sql`.
+3. Authentication → URL Configuration: add `http://localhost:3000/auth/callback` and `https://memotown.vercel.app/auth/callback`.
+4. `npm install` and `npm run dev`.
 
-## Routes
-
-- `/` is the public landing page.
-- `/login` handles email/password sign-in and sign-up, plus Google.
-- `/auth/callback` completes the OAuth and email-confirm exchange.
-- `/dashboard` is protected (see `PROTECTED` in `lib/supabase/proxy.ts`).
-
-## How we work
-
-See `AGENTS.md`: grill → `docs/features/<slug>/{feature.md,design-spec.md}` → go-ahead → build. shadcn components come from the CLI only.
+`supabase/seed.sql` loads the 19-memory demo town. Details are in `supabase/README.md`.
