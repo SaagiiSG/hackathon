@@ -8,7 +8,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRe
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Html, Line, MapControls, RoundedBox } from "@react-three/drei";
 import * as THREE from "three";
-import { FLOOR_H, FOOTPRINT, PLOT, STREET, type Building, type Lodge, type Plot, type TownLayout } from "@/lib/town/layout";
+import { FLOOR_H, FOOTPRINT, PLOT, STREET, type Building, type Lodge, type Plot, type Road, type TownLayout } from "@/lib/town/layout";
 import { TOKENS, friendColor } from "@/lib/town/palette";
 
 export type SceneCommand = { type: "focus"; key: string; n: number } | { type: "reset"; n: number };
@@ -29,6 +29,12 @@ const FOV = 24;
 const MIN_D = 16;
 const PAD_H = 0.12;
 const PAD = PLOT - STREET;
+
+// Tokens blended toward white, so the city reads bright and clean.
+const WHITE = new THREE.Color(TOKENS.canvas);
+const towardWhite = (hex: string, k: number) => `#${new THREE.Color(hex).lerp(WHITE, k).getHexString()}`;
+const GLASS = towardWhite(TOKENS.cardTintSky, 0.1);
+const LAWN = towardWhite(TOKENS.brandGreen, 0.45);
 
 export default function TownScene(props: Props) {
   return (
@@ -265,8 +271,12 @@ function TownContent({ layout, selected, onSelect, reducedMotion }: Props) {
   return (
     <group>
       {layout.streets && <Streets radius={layout.radius} />}
+      <Roads roads={layout.roads} />
       {layout.emptyLots.map((p) => (
         <Pad key={`lot-${p.x}-${p.z}`} plot={p} />
+      ))}
+      {layout.plazas.map((p) => (
+        <Plaza key={`plaza-${p.x}-${p.z}`} plot={p} />
       ))}
       {empty && <FirstPlot />}
       {layout.buildings.map((b, i) => (
@@ -285,7 +295,7 @@ function TownContent({ layout, selected, onSelect, reducedMotion }: Props) {
         <Park key={`park-${i}`} plot={p} reducedMotion={reducedMotion} />
       ))}
       {layout.landmark && <Landmark plot={layout.landmark} reducedMotion={reducedMotion} />}
-      {layout.streetlights && <Streetlights radius={layout.radius} />}
+      {layout.streets && <Streetlights radius={layout.radius} lit={layout.streetlights} />}
       {Array.from({ length: layout.carCount }, (_, i) => (
         <Car key={i} index={i} radius={layout.radius} reducedMotion={reducedMotion} />
       ))}
@@ -395,7 +405,7 @@ function BuildingMesh({
           <FloorMesh
             key={f.memoryId}
             i={i}
-            stripe={friendColor(f.colorIndex).hex}
+            stripe={towardWhite(friendColor(f.colorIndex).hex, 0.62)}
             slab={slab}
             delays={{ initial: 0.2 + index * 0.12 + i * 0.05, late: 0.75 }}
             reducedMotion={reducedMotion}
@@ -414,7 +424,8 @@ function BuildingMesh({
 }
 
 const SLAB = 0.13;
-const STRIPE = 0.045;
+const STRIPE = 0.04;
+const POST = 0.12;
 
 function FloorMesh({
   i,
@@ -437,19 +448,27 @@ function FloorMesh({
       <mesh position={[0, SLAB / 2, 0]} castShadow receiveShadow>
         <boxGeometry args={[FOOTPRINT, SLAB, FOOTPRINT]} />
         <meshStandardMaterial color={slab} />
-        <Edges color={TOKENS.hairlineStrong} />
+        <Edges color={TOKENS.hairline} />
       </mesh>
       <mesh position={[0, SLAB + STRIPE / 2, 0]}>
-        <boxGeometry args={[FOOTPRINT + 0.03, STRIPE, FOOTPRINT + 0.03]} />
+        <boxGeometry args={[FOOTPRINT + 0.02, STRIPE, FOOTPRINT + 0.02]} />
         <meshStandardMaterial color={stripe} />
       </mesh>
       <mesh position={[0, SLAB + STRIPE + glass / 2, 0]} castShadow>
-        <boxGeometry args={[FOOTPRINT - 0.2, glass, FOOTPRINT - 0.2]} />
-        <meshStandardMaterial color={TOKENS.steel} />
+        <boxGeometry args={[FOOTPRINT - 0.16, glass, FOOTPRINT - 0.16]} />
+        <meshStandardMaterial color={GLASS} emissive={GLASS} emissiveIntensity={0.25} roughness={0.25} />
       </mesh>
+      {CORNERS.map(([cx, cz]) => (
+        <mesh key={`${cx}${cz}`} position={[cx, SLAB + STRIPE + glass / 2, cz]} castShadow>
+          <boxGeometry args={[POST, glass, POST]} />
+          <meshStandardMaterial color={slab} />
+        </mesh>
+      ))}
     </group>
   );
 }
+
+const CORNERS = [-1, 1].flatMap((x) => [-1, 1].map((z) => [(x * (FOOTPRINT - POST)) / 2, (z * (FOOTPRINT - POST)) / 2] as const));
 
 function Roof({ height, tall, slab, reducedMotion }: { height: number; tall: boolean; slab: string; reducedMotion: boolean }) {
   const ref = useRef<THREE.Group>(null);
@@ -498,40 +517,104 @@ function streetLines(radius: number) {
   return lines;
 }
 
-function Streets({ radius }: { radius: number }) {
-  const lines = useMemo(() => streetLines(radius), [radius]);
-  const len = (2 * radius + 1) * PLOT + STREET;
-  const dashes = useRef<THREE.InstancedMesh>(null);
-  const spots = useMemo(() => {
-    const out: [number, number, boolean][] = [];
-    for (const p of lines) {
-      for (let s = -len / 2 + 0.7; s < len / 2 - 0.4; s += 1.1) {
-        // Skip dashes inside intersections.
-        if (lines.some((q) => Math.abs(q - s) < STREET / 2 + 0.2)) continue;
-        out.push([p, s, true], [s, p, false]);
-      }
-    }
-    return out;
-  }, [lines, len]);
-
+// Lays out an instanced mesh of flat stripes: [x, z, width along x, length along z].
+function useStripes(ref: RefObject<THREE.InstancedMesh | null>, stripes: [number, number, number, number][], y: number) {
   useLayoutEffect(() => {
-    const mesh = dashes.current;
+    const mesh = ref.current;
     if (!mesh) return;
     const o = new THREE.Object3D();
-    spots.forEach(([x, z, alongZ], i) => {
-      o.position.set(x, 0.025, z);
+    stripes.forEach(([x, z, w, l], i) => {
+      o.position.set(x, y, z);
       o.rotation.set(-Math.PI / 2, 0, 0);
-      o.scale.set(alongZ ? 0.06 : 0.5, alongZ ? 0.5 : 0.06, 1);
+      o.scale.set(w, l, 1);
       o.updateMatrix();
       mesh.setMatrixAt(i, o.matrix);
     });
     mesh.instanceMatrix.needsUpdate = true;
-  }, [spots]);
+  }, [ref, stripes, y]);
+}
+
+function Streets({ radius }: { radius: number }) {
+  const lines = useMemo(() => streetLines(radius), [radius]);
+  const len = (2 * radius + 1) * PLOT + STREET;
+  const dashes = useRef<THREE.InstancedMesh>(null);
+  const zebra = useRef<THREE.InstancedMesh>(null);
+  const spots = useMemo(() => {
+    const out: [number, number, number, number][] = [];
+    for (const p of lines) {
+      for (let s = -len / 2 + 0.5; s < len / 2 - 0.3; s += 0.6) {
+        // Skip dashes inside intersections and crosswalks.
+        if (lines.some((q) => Math.abs(q - s) < STREET / 2 + 0.5)) continue;
+        out.push([p, s, 0.06, 0.3], [s, p, 0.3, 0.06]);
+      }
+    }
+    return out;
+  }, [lines, len]);
+  const crossings = useMemo(() => {
+    const out: [number, number, number, number][] = [];
+    const lo = lines[0];
+    const hi = lines[lines.length - 1];
+    const d = STREET / 2 + 0.18;
+    for (const x of lines)
+      for (const z of lines)
+        for (const [ax, az] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          // Only on arms that lead to another intersection.
+          if (x + ax > hi || x + ax < lo || z + az > hi || z + az < lo) continue;
+          for (let k = -2; k <= 2; k++) {
+            const off = k * 0.18;
+            if (ax) out.push([x + ax * d, z + off, 0.3, 0.09]);
+            else out.push([x + off, z + az * d, 0.09, 0.3]);
+          }
+        }
+    return out;
+  }, [lines]);
+  useStripes(dashes, spots, 0.025);
+  useStripes(zebra, crossings, 0.025);
 
   return (
     <group>
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.015, 0]} receiveShadow>
         <planeGeometry args={[len, len]} />
+        <meshStandardMaterial color={TOKENS.hairlineStrong} />
+      </mesh>
+      <instancedMesh key={`d${spots.length}`} ref={dashes} args={[undefined, undefined, spots.length]}>
+        <planeGeometry args={[1, 1]} />
+        <meshStandardMaterial color={TOKENS.canvas} />
+      </instancedMesh>
+      <instancedMesh key={`z${crossings.length}`} ref={zebra} args={[undefined, undefined, crossings.length]}>
+        <planeGeometry args={[1, 1]} />
+        <meshStandardMaterial color={TOKENS.canvas} />
+      </instancedMesh>
+    </group>
+  );
+}
+
+function Roads({ roads }: { roads: Road[] }) {
+  return (
+    <group>
+      {roads.map((r) => (
+        <RoadStrip key={`${r.x1},${r.z1},${r.x2},${r.z2}`} road={r} />
+      ))}
+    </group>
+  );
+}
+
+// A straight two-lane road with lane dashes, drawn along its own z axis.
+function RoadStrip({ road }: { road: Road }) {
+  const dx = road.x2 - road.x1;
+  const dz = road.z2 - road.z1;
+  const len = Math.hypot(dx, dz);
+  const dashes = useRef<THREE.InstancedMesh>(null);
+  const spots = useMemo(() => {
+    const out: [number, number, number, number][] = [];
+    for (let s = 1.2; s < len - 0.3; s += 0.6) out.push([0, s, 0.06, 0.3]);
+    return out;
+  }, [len]);
+  useStripes(dashes, spots, 0.022);
+  return (
+    <group position={[road.x1, 0, road.z1]} rotation-y={Math.atan2(dx, dz)}>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.012, len / 2]} receiveShadow>
+        <planeGeometry args={[STREET, len]} />
         <meshStandardMaterial color={TOKENS.hairlineStrong} />
       </mesh>
       <instancedMesh key={spots.length} ref={dashes} args={[undefined, undefined, spots.length]}>
@@ -542,23 +625,42 @@ function Streets({ radius }: { radius: number }) {
   );
 }
 
-function Streetlights({ radius }: { radius: number }) {
+// Posts stand on every corner from the start; the 30-memory unlock turns the lamps on.
+function Streetlights({ radius, lit }: { radius: number; lit: boolean }) {
   const lines = useMemo(() => streetLines(radius), [radius]);
-  const spots = useMemo(() => lines.flatMap((x) => lines.map((z) => [x + STREET / 2 + 0.12, z + STREET / 2 + 0.12] as const)), [lines]);
+  const posts = useRef<THREE.InstancedMesh>(null);
+  const lamps = useRef<THREE.InstancedMesh>(null);
+  const spots = useMemo(
+    () => lines.flatMap((x) => lines.map((z) => [x + STREET / 2 + 0.14, z + STREET / 2 + 0.14] as const)),
+    [lines],
+  );
+  useLayoutEffect(() => {
+    const o = new THREE.Object3D();
+    spots.forEach(([x, z], i) => {
+      o.position.set(x, 0.55, z);
+      o.updateMatrix();
+      posts.current?.setMatrixAt(i, o.matrix);
+      o.position.set(x, 1.12, z);
+      o.updateMatrix();
+      lamps.current?.setMatrixAt(i, o.matrix);
+    });
+    if (posts.current) posts.current.instanceMatrix.needsUpdate = true;
+    if (lamps.current) lamps.current.instanceMatrix.needsUpdate = true;
+  }, [spots]);
   return (
     <group>
-      {spots.map(([x, z]) => (
-        <group key={`${x}-${z}`} position={[x, 0, z]}>
-          <mesh position={[0, 0.55, 0]}>
-            <cylinderGeometry args={[0.03, 0.03, 1.1, 5]} />
-            <meshStandardMaterial color={TOKENS.steel} />
-          </mesh>
-          <mesh position={[0, 1.12, 0]}>
-            <sphereGeometry args={[0.09, 8, 6]} />
-            <meshStandardMaterial color={TOKENS.brandYellow} emissive={TOKENS.brandYellow} emissiveIntensity={0.5} />
-          </mesh>
-        </group>
-      ))}
+      <instancedMesh key={`p${spots.length}`} ref={posts} args={[undefined, undefined, spots.length]} castShadow>
+        <cylinderGeometry args={[0.03, 0.03, 1.1, 5]} />
+        <meshStandardMaterial color={TOKENS.steel} />
+      </instancedMesh>
+      <instancedMesh key={`l${spots.length}`} ref={lamps} args={[undefined, undefined, spots.length]}>
+        <sphereGeometry args={[0.09, 8, 6]} />
+        <meshStandardMaterial
+          color={lit ? TOKENS.brandYellow : TOKENS.canvas}
+          emissive={lit ? TOKENS.brandYellow : TOKENS.canvas}
+          emissiveIntensity={lit ? 0.5 : 0.1}
+        />
+      </instancedMesh>
     </group>
   );
 }
@@ -567,7 +669,8 @@ function Car({ index, radius, reducedMotion }: { index: number; radius: number; 
   const ref = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   useGrow(body, { initial: 1.2, late: 1.2 }, reducedMotion, "pop");
-  const ring = index % (radius + 1);
+  // Outer loop first: it's the one you can see past the buildings.
+  const ring = radius - (index % (radius + 1));
   const h = (ring + 0.5) * PLOT;
   const perimeter = 8 * h;
   const phase = ((index * 0.618) % 1) * perimeter;
@@ -607,32 +710,83 @@ function Car({ index, radius, reducedMotion }: { index: number; radius: number; 
 // ---------- Parks, trees, woods, clouds ----------
 
 const PARK_TREES: [number, number, number][] = [
-  [-0.85, -0.85, 1],
-  [0.8, -0.7, 0.85],
-  [0.05, 0.15, 1.1],
-  [-0.8, 0.85, 0.9],
-  [0.85, 0.9, 1],
+  [-0.8, -0.8, 1],
+  [0.75, -0.75, 0.85],
+  [-0.78, 0.78, 0.95],
+  [-0.42, -0.42, 0.6],
+  [0.42, -0.45, 0.6],
 ];
 
 function Park({ plot, reducedMotion }: { plot: Plot; reducedMotion: boolean }) {
   const ref = useRef<THREE.Group>(null);
   useGrow(ref, { initial: 0.9, late: 1.1 }, reducedMotion, "pop");
+  const lawn = PAD - 0.24;
   return (
     <group position={[plot.x * PLOT, 0, plot.z * PLOT]}>
       <group ref={ref}>
         <mesh position={[0, PAD_H / 2, 0]} receiveShadow>
           <boxGeometry args={[PAD, PAD_H, PAD]} />
-          <meshStandardMaterial color={TOKENS.brandGreen} />
+          <meshStandardMaterial color={TOKENS.canvas} />
+          <Edges color={TOKENS.hairline} />
+        </mesh>
+        <mesh position={[0, PAD_H + 0.02, 0]} receiveShadow>
+          <boxGeometry args={[lawn, 0.04, lawn]} />
+          <meshStandardMaterial color={LAWN} />
+        </mesh>
+        {[0, Math.PI / 2].map((r) => (
+          <mesh key={r} position={[0, PAD_H + 0.045, 0]} rotation-y={r} receiveShadow>
+            <boxGeometry args={[lawn, 0.012, 0.28]} />
+            <meshStandardMaterial color={TOKENS.surface} />
+          </mesh>
+        ))}
+        <mesh position={[0.72, PAD_H + 0.05, 0.72]} receiveShadow>
+          <cylinderGeometry args={[0.5, 0.5, 0.02, 24]} />
+          <meshStandardMaterial color={TOKENS.cardTintSky} roughness={0.15} />
         </mesh>
         {PARK_TREES.map(([x, z, s]) => (
-          <Tree key={`${x}-${z}`} x={x} z={z} s={s} y={PAD_H} />
+          <Tree key={`${x}-${z}`} x={x} z={z} s={s} y={PAD_H + 0.04} color={TOKENS.brandGreen} />
         ))}
       </group>
     </group>
   );
 }
 
-function Tree({ x, z, s, y = 0 }: { x: number; z: number; s: number; y?: number }) {
+// A paved square on downtown plots nobody has built on yet; every other one has a fountain.
+function Plaza({ plot }: { plot: Plot }) {
+  const fountain = (plot.x + plot.z) % 2 === 0;
+  return (
+    <Pad plot={plot}>
+      <mesh position={[0, PAD_H + 0.006, 0]} receiveShadow>
+        <cylinderGeometry args={[1.05, 1.05, 0.012, 32]} />
+        <meshStandardMaterial color={TOKENS.surface} />
+      </mesh>
+      {fountain ? (
+        <>
+          <mesh position={[0, PAD_H + 0.08, 0]} castShadow receiveShadow>
+            <cylinderGeometry args={[0.45, 0.48, 0.16, 24]} />
+            <meshStandardMaterial color={TOKENS.canvas} />
+            <Edges color={TOKENS.hairline} />
+          </mesh>
+          <mesh position={[0, PAD_H + 0.165, 0]}>
+            <cylinderGeometry args={[0.38, 0.38, 0.01, 24]} />
+            <meshStandardMaterial color={TOKENS.cardTintSky} roughness={0.15} />
+          </mesh>
+          <mesh position={[0, PAD_H + 0.3, 0]} castShadow>
+            <cylinderGeometry args={[0.05, 0.07, 0.3, 8]} />
+            <meshStandardMaterial color={TOKENS.canvas} />
+          </mesh>
+        </>
+      ) : (
+        <Tree x={0} z={0} s={1.1} y={PAD_H} color={TOKENS.brandGreen} />
+      )}
+      {[-1, 1].flatMap((x) =>
+        [-1, 1].map((z) => <Tree key={`${x}${z}`} x={x * 1.1} z={z * 1.1} s={0.55} y={PAD_H} color={TOKENS.brandGreen} />),
+      )}
+    </Pad>
+  );
+}
+
+function Tree({ x, z, s, y = 0, color = TOKENS.brandTeal }: { x: number; z: number; s: number; y?: number; color?: string }) {
   return (
     <group position={[x, y, z]} scale={s}>
       <mesh position={[0, 0.22, 0]} castShadow>
@@ -641,7 +795,7 @@ function Tree({ x, z, s, y = 0 }: { x: number; z: number; s: number; y?: number 
       </mesh>
       <mesh position={[0, 0.72, 0]} castShadow>
         <icosahedronGeometry args={[0.42, 0]} />
-        <meshStandardMaterial color={TOKENS.brandTeal} flatShading />
+        <meshStandardMaterial color={color} flatShading />
       </mesh>
     </group>
   );

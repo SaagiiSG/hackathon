@@ -1,14 +1,10 @@
 import "server-only";
 import { getCurrentUser } from "@/lib/auth";
-import { MOCK_DATA } from "@/lib/mode";
 import { createClient } from "@/lib/supabase/server";
-import { mockState } from "./mock";
 import type { TownState } from "./types";
 
 // Loads everything /town needs. Reads cookies, so callers sit behind <Suspense>.
-export async function getTownState(preview?: string): Promise<TownState> {
-  if (MOCK_DATA) return mockState(preview);
-
+export async function getTownState(): Promise<TownState> {
   const viewer = await getCurrentUser();
   const supabase = await createClient();
   const { data: me, error: meError } = await supabase

@@ -67,7 +67,7 @@ export function PlacePanel({
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side={desktop ? "right" : "bottom"}
-        className="max-h-[80dvh] overflow-y-auto data-[side=right]:max-h-none data-[side=right]:sm:max-w-[400px]"
+        className="glass max-h-[80dvh] overflow-y-auto bg-white/60 data-[side=bottom]:rounded-t-3xl data-[side=right]:max-h-none data-[side=right]:rounded-l-3xl data-[side=right]:sm:max-w-[400px]"
       >
         <SheetHeader className="pr-10">
           <SheetTitle className="text-[22px] leading-tight font-semibold text-ink">

@@ -34,9 +34,12 @@ export type Lodge = {
   count: number;
 };
 
+export type Road = { x1: number; z1: number; x2: number; z2: number };
+
 export type TownLayout = {
   buildings: Building[];
   emptyLots: Plot[];
+  plazas: Plot[]; // free plots inside downtown
   parks: Plot[];
   landmark: Plot | null;
   radius: number; // downtown extent in plots from the center
@@ -44,6 +47,7 @@ export type TownLayout = {
   streets: boolean;
   carCount: number;
   streetlights: boolean;
+  roads: Road[]; // roads leading out of downtown, to the lodges and into the woods
   lodges: Lodge[];
   lodgeRing: number; // world radius of the woods ring
   outer: number; // world radius that holds everything
@@ -77,7 +81,7 @@ export function spiral(n: number): Plot {
 
 export const UNLOCKS = [
   { at: 10, next: "until your first park", message: "Your town just got its first park." },
-  { at: 20, next: "until cars hit the streets", message: "Cars are on the streets." },
+  { at: 20, next: "until rush hour", message: "Rush hour: more cars are on the streets." },
   { at: 30, next: "until streetlights and a second park", message: "Streetlights are on, and there's a second park." },
   { at: 50, next: "until a landmark tower", message: "A landmark tower rose over your town." },
 ] as const;
@@ -99,6 +103,13 @@ export function progressFor(total: number) {
 
 export function plural(n: number, one: string, many = `${one}s`) {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+function segmentDist(x: number, z: number, r: Road) {
+  const dx = r.x2 - r.x1;
+  const dz = r.z2 - r.z1;
+  const t = Math.max(0, Math.min(1, ((x - r.x1) * dx + (z - r.z1) * dz) / (dx * dx + dz * dz || 1)));
+  return Math.hypot(x - (r.x1 + t * dx), z - (r.z1 + t * dz));
 }
 
 // Small deterministic random so the woods don't reshuffle on every render.
@@ -155,13 +166,21 @@ export function buildLayout(
 
   const total = memories.length;
   const parks: Plot[] = [];
-  if (total >= 10) parks.push(spiral(last + 1));
-  if (total >= 30) parks.push(spiral(last + 2));
-  const landmark = total >= 50 ? spiral(last + 3) : null;
+  let next = last + 1;
+  // The town park is there from the start; unlocks add more.
+  if (keys.length) parks.push(spiral(next++));
+  if (total >= 10) parks.push(spiral(next++));
+  if (total >= 30) parks.push(spiral(next++));
+  const landmark = total >= 50 ? spiral(next++) : null;
 
   const occupied = [...buildings.map((b) => b.plot), ...emptyLots, ...parks, ...(landmark ? [landmark] : [])];
   const radius = occupied.reduce((r, p) => Math.max(r, Math.abs(p.x), Math.abs(p.z)), 0);
   const half = (radius + 0.5) * PLOT;
+  const taken = new Set(occupied.map((p) => `${p.x},${p.z}`));
+  const plazas: Plot[] = [];
+  if (buildings.length >= 2)
+    for (let x = -radius; x <= radius; x++)
+      for (let z = -radius; z <= radius; z++) if (!taken.has(`${x},${z}`)) plazas.push({ x, z });
 
   // Solo memories: one lodge per friend in the woods around downtown.
   const soloCount = new Map<string, number>();
@@ -185,10 +204,31 @@ export function buildLayout(
       };
     });
 
-  // The woods: a loose ring of trees, with clearings for the lodges.
-  const rand = rng(7);
   const inner = half * Math.SQRT2 + PLOT * 0.55;
   const outer = lodgeRing + PLOT * 1.7;
+
+  // Roads out of downtown: a lane to each lodge, and avenues into the woods.
+  const roads: Road[] = [];
+  if (buildings.length >= 2) {
+    for (const l of lodges) {
+      const c = Math.cos(l.angle);
+      const s = Math.sin(l.angle);
+      const t0 = half / Math.max(Math.abs(c), Math.abs(s));
+      roads.push({ x1: c * t0, z1: s * t0, x2: c * (lodgeRing - 1), z2: s * (lodgeRing - 1) });
+    }
+    const far = outer + PLOT * 4;
+    const a = PLOT / 2;
+    const avenues: Road[] = [
+      { x1: a, z1: -half, x2: a, z2: -far },
+      { x1: -a, z1: half, x2: -a, z2: far },
+      { x1: half, z1: -a, x2: far, z2: -a },
+      { x1: -half, z1: a, x2: -far, z2: a },
+    ];
+    for (const r of avenues) if (!lodges.some((l) => segmentDist(l.x, l.z, r) < 2.6)) roads.push(r);
+  }
+
+  // The woods: a loose ring of trees, with clearings for the lodges and roads.
+  const rand = rng(7);
   const trees: TownLayout["trees"] = [];
   const target = Math.round(((outer * outer - inner * inner) * Math.PI) / 11);
   for (let tries = 0; trees.length < target && tries < target * 6; tries++) {
@@ -197,19 +237,23 @@ export function buildLayout(
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r;
     if (lodges.some((l) => (l.x - x) ** 2 + (l.z - z) ** 2 < 3.2 ** 2)) continue;
+    if (roads.some((rd) => segmentDist(x, z, rd) < 1.2)) continue;
     trees.push({ x, z, s: 0.75 + rand() * 0.6 });
   }
 
   return {
     buildings,
     emptyLots,
+    plazas,
     parks,
     landmark,
     radius,
     half,
     streets: buildings.length >= 2,
-    carCount: total >= 20 ? Math.min(8, 3 + Math.floor((total - 20) / 10)) : 0,
+    // A few cars from the start; the 20-memory unlock adds 3, plus 1 per 10 more, up to 8.
+    carCount: (buildings.length >= 2 ? 3 : 0) + (total >= 20 ? Math.min(8, 3 + Math.floor((total - 20) / 10)) : 0),
     streetlights: total >= 30,
+    roads,
     lodges,
     lodgeRing,
     outer,

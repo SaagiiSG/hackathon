@@ -1,27 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { GlassPanel } from "@/components/glass-panel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createTown, joinTown } from "@/lib/town/client";
-import { MOCK_TOWN, MOCK_VIEWER } from "@/lib/town/mock";
-import type { Town } from "@/lib/town/types";
 
 // Not in a town yet: start one, or join friends with their code.
-export function Onboarding({
-  suggestedName,
-  mock,
-  onMockTown,
-}: {
-  suggestedName: string;
-  mock: boolean;
-  onMockTown: (town: Town) => void;
-}) {
-  const router = useRouter();
+export function Onboarding({ suggestedName }: { suggestedName: string }) {
   const [tab, setTab] = useState<"start" | "join">("start");
   const [townName, setTownName] = useState("");
   const [code, setCode] = useState("");
@@ -42,21 +30,11 @@ export function Onboarding({
 
     setBusy(true);
     try {
-      if (mock) {
-        if (tab === "join" && cleanCode !== MOCK_TOWN.inviteCode) {
-          throw new Error("That code doesn't match a town. Check the 8 characters.");
-        }
-        const self = { userId: MOCK_VIEWER.id, displayName: me, joinedAt: new Date().toISOString(), colorIndex: 0 };
-        onMockTown(
-          tab === "start"
-            ? { ...MOCK_TOWN, name: townName.trim(), members: [self], memories: [], buildingNames: {} }
-            : MOCK_TOWN,
-        );
-        return;
-      }
       if (tab === "start") await createTown(townName.trim(), me);
       else await joinTown(cleanCode, me);
-      router.refresh();
+      // Full reload: swapping the 3D scene in place trips drei's label portals (removeChild error).
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign("/town");
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -65,7 +43,7 @@ export function Onboarding({
 
   return (
     <div className="absolute inset-0 z-20 grid place-items-center overflow-y-auto p-3">
-      <Card className="w-full max-w-sm gap-5 px-6 py-6 shadow-[0_16px_48px_-8px_rgba(15,15,15,0.16)]">
+      <GlassPanel className="w-full max-w-sm gap-5 rounded-3xl px-6 py-6">
         <div className="flex flex-col gap-1">
           <h1 className="text-[22px] font-semibold text-ink">Start your town</h1>
           <p className="text-sm text-slate">
@@ -130,7 +108,7 @@ export function Onboarding({
             {tab === "start" ? "Start town" : "Join town"}
           </Button>
         </form>
-      </Card>
+      </GlassPanel>
     </div>
   );
 }

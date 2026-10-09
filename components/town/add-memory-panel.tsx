@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { CalendarDays, Loader2 } from "lucide-react";
+import { Camera, CalendarDays, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { CameraCapture } from "@/components/town/camera-capture";
 import { fromDay, fullDay, toDay, today } from "@/lib/town/dates";
 import { MAX_PHOTO_BYTES, PHOTO_TYPES, photoDate, saveMemory } from "@/lib/town/client";
 import type { Memory, MemoryKind, Town, Viewer } from "@/lib/town/types";
@@ -38,6 +39,9 @@ export function AddMemoryPanel({
   const [errors, setErrors] = useState<{ title?: string; photo?: string }>({});
   const [saving, setSaving] = useState(false);
   const [pickingDay, setPickingDay] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState(false);
+  const photoField = useRef<HTMLDivElement>(null);
 
   const pickPhoto = async (file: File | null) => {
     setErrors((e) => ({ ...e, photo: undefined }));
@@ -67,10 +71,18 @@ export function AddMemoryPanel({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) {
-      setErrors({ title: "Give it a short title." });
+    const missing = {
+      title: title.trim() ? undefined : "Give it a short title.",
+      photo: photo ? undefined : "Add a photo of the moment.",
+    };
+    if (missing.title || missing.photo) {
+      setErrors(missing);
+      const target = document.getElementById(missing.title ? "memory-title" : "memory-photo");
+      if (target) target.focus();
+      else photoField.current?.scrollIntoView({ block: "nearest" });
       return;
     }
+    setCameraOpen(false);
     setSaving(true);
     try {
       const memory = await saveMemory(town.id, viewer, {
@@ -90,7 +102,7 @@ export function AddMemoryPanel({
   return (
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent
-        className="max-h-[calc(100dvh-1.5rem)] gap-5 overflow-y-auto sm:max-w-md"
+        className="glass max-h-[calc(100dvh-1.5rem)] gap-5 overflow-y-auto rounded-3xl bg-white/70 ring-0 sm:max-w-md"
         showCloseButton={!saving}
         onInteractOutside={(e) => saving && e.preventDefault()}
       >
@@ -142,8 +154,8 @@ export function AddMemoryPanel({
             {title.length > 60 && <p className="text-[13px] text-steel">{80 - title.length} characters left</p>}
           </div>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="memory-photo">Add a photo (optional)</Label>
+          <div ref={photoField} className="flex flex-col gap-2">
+            <Label htmlFor="memory-photo">Add a photo</Label>
             {preview ? (
               <div className="flex flex-col gap-2">
                 {/* eslint-disable-next-line @next/next/no-img-element -- local preview */}
@@ -152,28 +164,66 @@ export function AddMemoryPanel({
                   Remove
                 </Button>
               </div>
-            ) : (
-              <Input
-                id="memory-photo"
-                type="file"
-                accept={PHOTO_TYPES.join(",")}
+            ) : cameraOpen ? (
+              <CameraCapture
                 disabled={saving}
-                className="h-11 py-2.5"
-                onChange={(e) => pickPhoto(e.target.files?.[0] ?? null)}
+                onCapture={(file) => {
+                  setCameraOpen(false);
+                  pickPhoto(file);
+                }}
+                onCancel={() => setCameraOpen(false)}
+                onError={() => {
+                  setCameraOpen(false);
+                  setCameraError(true);
+                }}
               />
+            ) : (
+              <div className="flex gap-2">
+                <Input
+                  id="memory-photo"
+                  type="file"
+                  accept={PHOTO_TYPES.join(",")}
+                  disabled={saving}
+                  aria-invalid={!!errors.photo}
+                  className="h-11 min-w-0 flex-1 py-2.5"
+                  onChange={(e) => {
+                    setCameraError(false);
+                    pickPhoto(e.target.files?.[0] ?? null);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11"
+                  disabled={saving}
+                  onClick={() => {
+                    setCameraError(false);
+                    setErrors((e) => ({ ...e, photo: undefined }));
+                    setCameraOpen(true);
+                  }}
+                >
+                  <Camera />
+                  Take photo
+                </Button>
+              </div>
+            )}
+            {cameraError && (
+              <p className="text-[13px] text-destructive">
+                Couldn&apos;t open the camera. Allow camera access, or choose a photo instead.
+              </p>
             )}
             {errors.photo && <p className="text-[13px] text-destructive">{errors.photo}</p>}
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="memory-body">{photo ? "Add a caption (optional)" : "Tell the story (optional)"}</Label>
+            <Label htmlFor="memory-body">Add a caption (optional)</Label>
             <Textarea
               id="memory-body"
               value={body}
               maxLength={2000}
               disabled={saving}
               rows={3}
-              placeholder={photo ? "What's going on in this photo?" : "Who was there, what was funny, what you want to remember."}
+              placeholder="What's going on in this photo?"
               onChange={(e) => setBody(e.target.value)}
             />
           </div>

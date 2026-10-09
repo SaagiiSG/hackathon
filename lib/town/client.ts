@@ -1,4 +1,3 @@
-import { MOCK_DATA } from "@/lib/mode";
 import { createClient } from "@/lib/supabase/client";
 import { toDay, today } from "./dates";
 import type { Memory, NewMemory, Viewer } from "./types";
@@ -23,20 +22,6 @@ function friendly(message: string) {
 
 export async function saveMemory(townId: string, viewer: Viewer, input: NewMemory): Promise<Memory> {
   const localUrl = input.photo ? URL.createObjectURL(input.photo) : null;
-  if (MOCK_DATA) {
-    await new Promise((r) => setTimeout(r, 300));
-    return {
-      id: crypto.randomUUID(),
-      authorId: viewer.id,
-      kind: input.kind,
-      title: input.title,
-      body: input.body,
-      photoUrl: localUrl,
-      happenedOn: input.happenedOn,
-      createdAt: new Date().toISOString(),
-    };
-  }
-
   const supabase = createClient();
   let photoPath: string | null = null;
   if (input.photo) {
@@ -73,7 +58,6 @@ export async function saveMemory(townId: string, viewer: Viewer, input: NewMemor
 }
 
 export async function nameBuilding(townId: string, viewer: Viewer, month: string, name: string) {
-  if (MOCK_DATA) return;
   const { error } = await createClient()
     .from("building_names")
     .upsert({ group_id: townId, month: `${month}-01`, name, named_by: viewer.id }, { onConflict: "group_id,month" });

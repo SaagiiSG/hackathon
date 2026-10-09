@@ -1,14 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { CalendarDays, Maximize, Minus, Plus, UserPlus } from "lucide-react";
 import { signOut } from "@/app/login/actions";
+import { GlassPanel } from "@/components/glass-panel";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,7 +66,7 @@ function copyCode(code: string) {
   );
 }
 
-export function TownApp({ initial, mock }: { initial: TownState; mock: boolean }) {
+export function TownApp({ initial }: { initial: TownState }) {
   // Server data wins whenever it changes (e.g. after router.refresh()).
   const [state, setState] = useState(initial);
   const [seen, setSeen] = useState(initial);
@@ -93,8 +92,6 @@ export function TownApp({ initial, mock }: { initial: TownState; mock: boolean }
         </div>
         <Onboarding
           suggestedName={state.suggestedName}
-          mock={mock}
-          onMockTown={(town) => setState({ kind: "town", viewer: state.viewer, town })}
         />
       </main>
     );
@@ -104,7 +101,6 @@ export function TownApp({ initial, mock }: { initial: TownState; mock: boolean }
     <TownView
       town={state.town}
       viewer={state.viewer}
-      mock={mock}
       reducedMotion={reducedMotion}
       onTown={(town) => setState({ ...state, town })}
     />
@@ -114,13 +110,11 @@ export function TownApp({ initial, mock }: { initial: TownState; mock: boolean }
 function TownView({
   town,
   viewer,
-  mock,
   reducedMotion,
   onTown,
 }: {
   town: Town;
   viewer: Viewer;
-  mock: boolean;
   reducedMotion: boolean;
   onTown: (town: Town) => void;
 }) {
@@ -190,7 +184,7 @@ function TownView({
       </div>
 
       {/* Town bar */}
-      <Card className="absolute top-3 left-3 z-20 max-w-[calc(100%-6rem)] gap-2 px-4 py-3 shadow-[0_4px_12px_rgba(15,15,15,0.08)] md:top-4 md:left-4">
+      <GlassPanel className="absolute top-3 left-3 z-20 max-w-[calc(100%-6rem)] gap-2 px-4 py-3 md:top-4 md:left-4">
         <h1 className="truncate text-lg leading-snug font-semibold text-ink">{town.name}</h1>
         <div className="flex flex-wrap items-center gap-1.5">
           {town.members.map((m) => (
@@ -239,15 +233,15 @@ function TownView({
             </DropdownMenu>
           )}
         </div>
-      </Card>
+      </GlassPanel>
 
       {/* Account */}
       <div className="absolute top-3 right-3 z-20 md:top-4 md:right-4">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full" aria-label="Account">
+            <Button variant="ghost" size="icon" className="glass-clear size-11 rounded-full" aria-label="Account">
               <Avatar className={me ? `ring-2 ring-offset-1 ${friendRingClass(me.colorIndex)}` : undefined}>
-                <AvatarFallback className="bg-white text-xs font-semibold text-ink">
+                <AvatarFallback className="bg-white/80 text-xs font-semibold text-ink">
                   {initials(me?.displayName ?? viewer.email)}
                 </AvatarFallback>
               </Avatar>
@@ -255,35 +249,29 @@ function TownView({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="truncate text-[13px] font-normal text-steel">
-              {mock ? "Demo town" : viewer.email}
+              {viewer.email}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => copyCode(town.inviteCode)}>Copy invite code</DropdownMenuItem>
-            {mock ? (
-              <DropdownMenuItem asChild>
-                <Link href="/">Exit demo</Link>
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
-            )}
+            <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
       {/* Progress */}
       {!empty && (
-        <Card className="absolute bottom-20 left-3 z-20 gap-1 px-4 py-3 shadow-[0_4px_12px_rgba(15,15,15,0.08)] md:bottom-4 md:left-4">
+        <GlassPanel className="absolute bottom-20 left-3 z-20 gap-1 px-4 py-3 md:bottom-4 md:left-4">
           <p className="text-sm font-medium text-ink">
             {plural(layout.total, "memory", "memories")} · {plural(layout.months, "month")}
           </p>
           <Progress value={progress.pct} className="h-1.5 w-48 bg-hairline-soft" aria-label="Progress to the next unlock" />
           <p className="text-[13px] text-slate">{progress.caption}</p>
-        </Card>
+        </GlassPanel>
       )}
 
       {/* Empty town */}
       {empty && (
-        <Card className="absolute bottom-20 left-1/2 z-20 w-[min(26rem,calc(100%-1.5rem))] -translate-x-1/2 gap-3 px-5 py-4 shadow-[0_4px_12px_rgba(15,15,15,0.08)]">
+        <GlassPanel className="absolute bottom-20 left-1/2 z-20 w-[min(26rem,calc(100%-1.5rem))] -translate-x-1/2 gap-3 px-5 py-4">
           <h2 className="text-lg font-semibold text-ink">Your town is an empty plot</h2>
           <p className="text-sm text-slate">
             Add your first memory and the first building goes up. Every memory adds a floor.
@@ -294,19 +282,19 @@ function TownView({
               Copy
             </Button>
           </p>
-        </Card>
+        </GlassPanel>
       )}
 
       {/* Add memory */}
       <div className="absolute inset-x-3 bottom-3 z-20 md:inset-x-auto md:bottom-4 md:left-1/2 md:-translate-x-1/2">
-        <Button size="lg" className="h-11 w-full px-5 text-sm md:w-auto" onClick={() => setAdding({})}>
+        <Button size="lg" className="glass-prominent h-12 w-full rounded-full bg-primary/80 px-6 text-sm hover:bg-primary/90 md:w-auto" onClick={() => setAdding({})}>
           <Plus />
           {empty ? "Add the first memory" : "Add memory"}
         </Button>
       </div>
 
       {/* Zoom */}
-      <Card className="absolute right-3 bottom-20 z-20 flex-row items-center gap-1 p-1 shadow-[0_4px_12px_rgba(15,15,15,0.08)] md:right-4 md:bottom-4">
+      <GlassPanel className="absolute right-3 bottom-20 z-20 flex-row items-center gap-1 rounded-full p-1 md:right-4 md:bottom-4">
         <Button variant="ghost" size="icon" onClick={() => step(-0.1)} aria-label="Zoom out">
           <Minus />
         </Button>
@@ -338,7 +326,7 @@ function TownView({
           </TooltipTrigger>
           <TooltipContent>Reset view</TooltipContent>
         </Tooltip>
-      </Card>
+      </GlassPanel>
 
       {selected && (
         <PlacePanel

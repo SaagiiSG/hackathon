@@ -1,21 +1,19 @@
 import { Suspense } from "react";
-import { MOCK_DATA } from "@/lib/mode";
 import { getTownState } from "@/lib/town/server";
 import { TownApp } from "@/components/town/town-app";
 
-export default function TownPage({ searchParams }: PageProps<"/town">) {
+export default function TownPage() {
   return (
     <Suspense fallback={<TownLoading />}>
-      <TownLoader searchParams={searchParams} />
+      <TownLoader />
     </Suspense>
   );
 }
 
-// Reads the session (and ?preview= in mock mode), so it streams in behind Suspense.
-async function TownLoader({ searchParams }: { searchParams: PageProps<"/town">["searchParams"] }) {
-  const { preview } = await searchParams;
-  const state = await getTownState(typeof preview === "string" ? preview : undefined);
-  return <TownApp initial={state} mock={MOCK_DATA} />;
+// Reads the session, so it streams in behind Suspense.
+async function TownLoader() {
+  const state = await getTownState();
+  return <TownApp initial={state} />;
 }
 
 function TownLoading() {
